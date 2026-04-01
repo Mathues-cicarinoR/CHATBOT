@@ -1,13 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Users, Settings, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Users, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useTheme } from '../../contexts/ThemeContext';
 import { cn } from '../../lib/utils';
 
 export const SidebarNav: React.FC = () => {
   const { signOut, user } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const [width, setWidth] = useState(() => {
     return Number(localStorage.getItem('sidebar-width')) || 240;
   });
