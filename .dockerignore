@@ -12,6 +12,3 @@ yarn-debug.log*
 yarn-error.log*
 .vscode
 .idea
-Dockerfile
-docker-compose.yml
-nginx.conf
