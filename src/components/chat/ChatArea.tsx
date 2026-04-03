@@ -63,6 +63,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
   useEffect(() => {
     if (!leadId) return;
 
+    // 1. Carregar mensagens iniciais
     const fetchMessages = async () => {
       const { data, error } = await supabase
         .from('n8n_chat_histories')
@@ -80,20 +81,36 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
 
     fetchMessages();
 
+    // 2. Realtime Subscription (Simplificada e robusta)
+    // Usamos um nome de canal simples sem caracteres especiais
+    const channelName = `messages_room`;
     const channel = supabase
-      .channel(`chat_${leadId}`)
+      .channel(channelName)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'n8n_chat_histories' },
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'n8n_chat_histories' 
+        },
         (payload) => {
           const newMsg = payload.new as Message;
+          // Verificamos se a mensagem pertence ao lead atual
           if (newMsg.session_id === leadId) {
-            setMessages((prev) => [...prev, newMsg]);
+            setMessages((prev) => {
+              // Evitar duplicidade caso o fetch e o realtime ocorram simultâneos
+              if (prev.some(m => m.id === newMsg.id)) return prev;
+              return [...prev, newMsg];
+            });
             scrollToBottom();
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('Realtime: Conectado ao chat de', leadId);
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -157,7 +174,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
       const userName = user?.email?.split('@')[0] || 'Equipe';
       const mediaType = mediaData?.type as any;
 
-      await supabase.from('n8n_chat_histories').insert([{
+      const { data: insertedData, error: dbError } = await supabase.from('n8n_chat_histories').insert([{
         session_id: leadId,
         message: { 
           type: 'ai', 
@@ -169,7 +186,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
           file_name: mediaData?.name
         },
         hora_data_mensagem: new Date().toISOString()
-      }]);
+      }]).select();
+
+      if (dbError) throw dbError;
+
+      // Se for um áudio ou arquivo, garantimos que a prévia apareça na hora se o realtime falhar
+      if (insertedData) {
+        setMessages((prev) => {
+          if (prev.some(m => m.id === insertedData[0].id)) return prev;
+          return [...prev, insertedData[0]];
+        });
+        scrollToBottom();
+      }
 
       if (leadId.includes('@s.whatsapp.net')) {
         const baseUrl = (import.meta.env.VITE_EVOLUTION_API_URL || '').trim();
@@ -187,10 +215,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
             body: JSON.stringify({
               number: whatsappNumber,
               media: mediaData.url,
-              mediatype: mediaData.type === 'document' ? 'document' : mediaData.type,
+              mediatype: mediaData.type === 'document' ? 'document' : (mediaData.type === 'audio' ? 'ptt' : mediaData.type),
               caption: messageContent,
               fileName: mediaData.name || 'arquivo',
-              mimetype: mediaData.type === 'audio' ? 'audio/mpeg' : (mediaData.type === 'image' ? 'image/png' : 'application/pdf')
+              mimetype: mediaData.type === 'audio' ? 'audio/ogg; codecs=opus' : (mediaData.type === 'image' ? 'image/png' : 'application/pdf')
             })
           });
         } else {
@@ -255,8 +283,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
 
   const startRecording = async () => {
     try {
+      // Usar audio/webm ou audio/ogg se suportado
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
+        ? 'audio/webm;codecs=opus' 
+        : (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' : 'audio/webm');
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -265,8 +298,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mpeg' });
-        const file = new File([audioBlob], `voice-note-${Date.now()}.mp3`, { type: 'audio/mpeg' });
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        const file = new File([audioBlob], `voice-note-${Date.now()}.ogg`, { type: mimeType });
         const mockEvent = { target: { files: [file] } } as any;
         await handleFileUpload(mockEvent);
         stream.getTracks().forEach(track => track.stop());
@@ -321,17 +354,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
   return (
     <div className="flex-1 flex flex-col h-full bg-white dark:bg-zinc-950 transition-colors duration-200">
       <div className="h-16 border-b border-border flex items-center justify-between px-4 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md sticky top-0 z-10">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 overflow-hidden">
           {onBack && (
             <button onClick={onBack} className="md:hidden p-2 -ml-2 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-full transition-colors">
               <ChevronLeft className="w-5 h-5" />
             </button>
           )}
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shadow-sm border border-primary/10">
+          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shadow-sm border border-primary/10 shrink-0">
             {leadId?.[0]?.toUpperCase() || 'L'}
           </div>
-          <div>
-            <p className="font-bold text-sm tracking-tight truncate max-w-[150px] md:max-w-none">{leadId}</p>
+          <div className="min-w-0">
+            <p className="font-bold text-sm tracking-tight truncate">{leadId}</p>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-green-500" />
               <select 
@@ -347,7 +380,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
             </div>
           </div>
         </div>
-        <button onClick={handleClearHistory} disabled={isClearing} className="p-2 text-zinc-400 hover:text-red-500 rounded-lg transition-all">
+        <button onClick={handleClearHistory} disabled={isClearing} className="p-2 text-zinc-400 hover:text-red-500 rounded-lg transition-all shrink-0">
           {isClearing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
         </button>
       </div>
@@ -369,7 +402,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
                   </div>
                   <div className={cn("p-4 rounded-2xl text-sm shadow-sm max-w-full overflow-hidden", isAI ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-border rounded-tl-none" : "bg-primary text-white rounded-tr-none")}>
                     {msg.message.media_url && (
-                      <div className="mb-3 rounded-lg overflow-hidden bg-black/5 dark:bg-white/5">
+                      <div className="mb-3 rounded-lg overflow-hidden bg-black/5 dark:bg-white/5 min-w-[200px]">
                         {msg.message.media_type === 'image' && (
                           <img 
                             src={msg.message.media_url} 
@@ -379,8 +412,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
                           />
                         )}
                         {msg.message.media_type === 'audio' && (
-                          <div className="p-2 flex items-center gap-3 min-w-[200px]">
-                            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                          <div className="p-2 flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-black/10 dark:bg-white/10 flex items-center justify-center shrink-0">
                               <Volume2 className="w-4 h-4 text-primary" />
                             </div>
                             <audio controls className="h-8 flex-1">
@@ -390,7 +423,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
                         )}
                         {(msg.message.media_type === 'document' || msg.message.media_type === 'application') && (
                           <div className="p-3 flex items-center gap-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
-                            <div className="w-10 h-10 rounded-lg bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center">
+                            <div className="shrink-0 w-10 h-10 rounded-lg bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center">
                               <FileText className="w-6 h-6 text-zinc-500" />
                             </div>
                             <div className="flex-1 min-w-0">
@@ -414,7 +447,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
 
       <div className="p-4 bg-white dark:bg-zinc-950 flex flex-col gap-3 relative border-t border-border">
         {isRecording && (
-          <div className="absolute inset-0 bg-white dark:bg-zinc-950 z-30 flex items-center justify-between px-6">
+          <div className="absolute inset-0 bg-white dark:bg-zinc-950 z-30 flex items-center justify-between px-6 border-t-2 border-primary">
             <div className="flex items-center gap-4 text-red-500">
               <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
               <span className="font-mono font-bold text-lg">{formatTime(recordingTime)}</span>
@@ -424,14 +457,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
               <button 
                 type="button" 
                 onClick={stopRecording}
-                className="p-3 bg-primary text-white rounded-full shadow-lg"
+                className="p-3 bg-primary text-white rounded-full shadow-lg hover:scale-110 transition-transform"
               >
                 <Send className="w-5 h-5" />
               </button>
               <button 
                 type="button" 
                 onClick={cancelRecording}
-                className="p-3 text-zinc-400 hover:text-red-500"
+                className="p-3 text-zinc-400 hover:text-red-500 transition-colors"
+                title="Cancelar"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -450,7 +484,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
         )}
         
         <form onSubmit={(e) => handleSendMessage(e)} className="relative group flex items-center gap-2">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
             <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading || isRecording} className="p-2 text-zinc-400 hover:text-primary transition-colors">
               {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
@@ -464,24 +498,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
             type="text" 
             value={newMessage} 
             onChange={(e) => setNewMessage(e.target.value)} 
-            placeholder={isUploading ? "Carregando..." : "Digite uma mensagem..."} 
-            className="flex-1 px-4 py-2 bg-zinc-100 dark:bg-zinc-900 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none" 
+            placeholder={isUploading ? "Carregando..." : (isRecording ? "Pressione o microfone para parar..." : "Digite uma mensagem...")} 
+            className="flex-1 px-4 py-2 bg-zinc-100 dark:bg-zinc-900 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none placeholder:text-zinc-400" 
             disabled={isSending || isUploading || isRecording} 
           />
           
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             <button 
               type="button" 
               onClick={startRecording}
               disabled={isSending || isUploading || isRecording}
               className="p-2 text-zinc-400 hover:text-primary disabled:opacity-20 transition-colors"
+              title="Gravar áudio"
             >
               <Mic className="w-5 h-5" />
             </button>
             <button 
               type="submit" 
               disabled={(!newMessage.trim() && !isUploading) || isSending || isUploading || isRecording} 
-              className="p-2 bg-primary text-white rounded-xl shadow-lg disabled:opacity-50"
+              className="p-2 bg-primary text-white rounded-xl shadow-lg disabled:opacity-50 hover:bg-primary-hover transition-colors"
             >
               {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
             </button>
