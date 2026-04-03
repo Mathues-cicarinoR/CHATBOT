@@ -203,14 +203,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
           const mimetype = mediaData.mimetype || (mediaType === 'image' ? 'image/png' : 'application/pdf');
 
           if (mediaType === 'audio') {
-            // No Evolution API v2, o endpoint padrão é /message/sendAudio/:instance
-            const audioEndpoint = `${apiBaseUrl}/message/sendAudio/${instanceName}`;
+            // Revertendo para o endpoint sendWhatsAppAudio que funciona na sua versão
+            const audioEndpoint = `${apiBaseUrl}/message/sendWhatsAppAudio/${instanceName}`;
             const payload = {
               number: whatsappNumber,
               audio: mediaData.url,
-              delay: 1200,
-              encoding: true,
-              type: 'ptt' // Para enviar como áudio gravado
+              delay: 1200
             };
             console.log('Enviando Áudio (PTT):', { audioEndpoint, payload });
             
@@ -296,7 +294,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
       let mediaType: 'image' | 'video' | 'audio' | 'document' = 'document';
       if (file.type.startsWith('image/')) mediaType = 'image';
       else if (file.type.startsWith('video/')) mediaType = 'video';
-      else if (file.type.startsWith('audio/') || file.name.endsWith('.ogg') || file.name.endsWith('.webm')) mediaType = 'audio';
+      else if (file.type.startsWith('audio/') || file.name.endsWith('.ogg') || file.name.endsWith('.webm') || file.name.endsWith('.mp3') || file.name.endsWith('.m4a') || file.name.endsWith('.wav')) mediaType = 'audio';
       
       console.log('Arquivo carregado no Storage:', { publicUrl, mediaType });
 
