@@ -174,7 +174,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
       const userName = user?.email?.split('@')[0] || 'Equipe';
       const mediaType = mediaData?.type as any;
 
-      const { data: insertedData, error: dbError } = await supabase.from('n8n_chat_histories').insert([{
+      const { error: dbError } = await supabase.from('n8n_chat_histories').insert([{
         session_id: leadId,
         message: { 
           type: 'ai', 
@@ -186,18 +186,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
           file_name: mediaData?.name
         },
         hora_data_mensagem: new Date().toISOString()
-      }]).select();
+      }]);
 
       if (dbError) throw dbError;
-
-      // Se for um áudio ou arquivo, garantimos que a prévia apareça na hora se o realtime falhar
-      if (insertedData) {
-        setMessages((prev) => {
-          if (prev.some(m => m.id === insertedData[0].id)) return prev;
-          return [...prev, insertedData[0]];
-        });
-        scrollToBottom();
-      }
 
       if (leadId.includes('@s.whatsapp.net')) {
         const baseUrl = (import.meta.env.VITE_EVOLUTION_API_URL || '').trim();
