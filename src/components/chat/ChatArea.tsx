@@ -25,9 +25,10 @@ interface Message {
 interface ChatAreaProps {
   lead: any | null;
   onBack?: () => void;
+  onUpdate?: (newData: any) => void;
 }
 
-export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack }) => {
+export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) => {
   const leadId = lead?.lead_id || null;
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -131,7 +132,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack }) => {
   const updateLeadStatus = async (status: string) => {
     if (!leadId) return;
     try {
-      await supabase.from('Leads').update({ status }).eq('lead_id', leadId);
+      const { error } = await supabase.from('Leads').update({ status }).eq('id', lead.id);
+      if (error) throw error;
+      if (onUpdate) onUpdate({ status });
     } catch (err) {
       console.error('Erro ao atualizar status:', err);
     }
@@ -385,6 +388,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack }) => {
 
       if (error) throw error;
       lead.lead_nome = editedName; // Atualização otimista
+      if (onUpdate) onUpdate({ lead_nome: editedName });
       setIsEditingName(false);
     } catch (err) {
       console.error('Erro ao atualizar nome:', err);

@@ -17,9 +17,10 @@ interface Lead {
 interface LeadListProps {
   selectedLeadId: string | null;
   onSelectLead: (lead: Lead | null) => void;
+  refreshTrigger?: number;
 }
 
-export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead }) => {
+export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead, refreshTrigger }) => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -45,7 +46,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
 
   useEffect(() => {
     fetchLeads();
-  }, []);
+  }, [refreshTrigger]);
 
   const handleCreateLead = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,24 +90,29 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
     if (!confirm(`Tem certeza que deseja excluir a conversa com ${lead.lead_nome || lead.lead_id}? Isso apagará todo o histórico.`)) return;
 
     try {
+      // Remoção otimista da UI
+      setLeads(prev => prev.filter(l => l.id !== lead.id));
+      if (selectedLeadId === lead.lead_id) {
+        onSelectLead(null);
+      }
+
       // Deletar da tabela Leads usando o ID numérico
       const { error: leadError } = await supabase
         .from('Leads')
         .delete()
         .eq('id', lead.id);
 
-      if (leadError) throw leadError;
+      if (leadError) {
+        // Reverter se der erro
+        await fetchLeads();
+        throw leadError;
+      }
 
       // Deletar histórico de mensagens usando o lead_id (session_id)
       await supabase
         .from('n8n_chat_histories')
         .delete()
         .eq('session_id', lead.lead_id);
-
-      await fetchLeads();
-      if (selectedLeadId === lead.lead_id) {
-        onSelectLead(null);
-      }
     } catch (err) {
       console.error('Erro ao deletar lead:', err);
       alert('Erro ao excluir contato.');

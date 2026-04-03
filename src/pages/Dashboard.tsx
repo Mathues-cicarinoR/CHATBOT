@@ -7,7 +7,10 @@ import { cn } from '../lib/utils';
 
 export const Dashboard: React.FC = () => {
   const [selectedLead, setSelectedLead] = useState<any | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const location = useLocation();
+
+  const handleRefresh = () => setRefreshTrigger(prev => prev + 1);
 
   // Se a rota for /mensagens ou /, mostramos o chat
   // Se for outra rota (ex: /contatos), mostramos o Outlet
@@ -26,7 +29,11 @@ export const Dashboard: React.FC = () => {
           "w-full md:w-[320px] lg:w-[380px] h-full border-r border-border transition-all duration-300",
           selectedLead ? "hidden md:flex" : "flex"
         )}>
-          <LeadList selectedLeadId={selectedLead?.lead_id} onSelectLead={setSelectedLead} />
+          <LeadList 
+            selectedLeadId={selectedLead?.lead_id} 
+            onSelectLead={setSelectedLead} 
+            refreshTrigger={refreshTrigger}
+          />
         </div>
 
         {/* Área de Chat - Ocupa tela cheia no mobile se selecionado */}
@@ -34,7 +41,14 @@ export const Dashboard: React.FC = () => {
           "flex-1 h-full transition-all duration-300 bg-zinc-50/50 dark:bg-zinc-900/10",
           !selectedLead ? "hidden md:flex" : "flex"
         )}>
-          <ChatArea lead={selectedLead} onBack={() => setSelectedLead(null)} />
+          <ChatArea 
+            lead={selectedLead} 
+            onBack={() => setSelectedLead(null)} 
+            onUpdate={(newData) => {
+              setSelectedLead(prev => ({ ...prev, ...newData }));
+              handleRefresh();
+            }}
+          />
         </div>
       </div>
 
