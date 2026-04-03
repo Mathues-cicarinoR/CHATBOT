@@ -148,21 +148,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
             })
           });
 
+          const responseText = await response.text();
+
           if (!response.ok) {
-            let errorText = '';
-            try {
-              const errorData = await response.json();
-              errorText = JSON.stringify(errorData);
-            } catch {
-              errorText = await response.text();
-            }
-            console.error('Erro detalhado Evolution API:', errorText);
+            console.error('O servidor retornou erro HTML ou Texto:', responseText);
             throw new Error(`Falha no envio Evolution: ${response.status} ${response.statusText}`);
           }
-          console.log('Mensagem enviada com sucesso via Evolution API');
+
+          try {
+            const data = JSON.parse(responseText);
+            console.log('Mensagem enviada com sucesso via Evolution API:', data);
+          } catch {
+            console.warn('A mensagem foi enviada, mas a resposta não era um JSON:', responseText);
+          }
         } catch (fetchErr) {
-          console.error('Erro de rede/CORS ao chamar Evolution API:', fetchErr);
-          // Opcional: Notificar o usuário via UI que o envio de fato falhou
+          console.error('Erro na comunicação com Evolution API:', fetchErr);
         }
       } else {
         console.warn('Este lead não possui um número de WhatsApp válido (JID). O envio via Evolution API foi ignorado.', { leadId });
@@ -310,6 +310,4 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
     </div>
   );
 };
-
-
 
