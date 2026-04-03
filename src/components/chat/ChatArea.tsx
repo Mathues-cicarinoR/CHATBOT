@@ -3,7 +3,8 @@ import { supabase } from '../../lib/supabase';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '../../lib/utils';
-import { User, Bot, Clock, Send, Loader2, MessageSquare } from 'lucide-react';
+import { User, Bot, Clock, Send, Loader2, MessageSquare, Trash2, UserCheck } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface Message {
   id: number;
@@ -11,6 +12,8 @@ interface Message {
   message: {
     type: 'human' | 'ai';
     content: string;
+    from_crm?: boolean;
+    sender_name?: string;
   };
   hora_data_mensagem: string | null;
 }
@@ -20,10 +23,12 @@ interface ChatAreaProps {
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
+  const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [newMessage, setNewMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -101,6 +106,28 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
 
   const groupedMessages = groupMessagesByDate(messages);
 
+  const handleClearHistory = async () => {
+    if (!leadId) return;
+    if (!confirm('Tem certeza que deseja limpar todo o histórico desta conversa? Esta ação não pode ser desfeita.')) return;
+
+    setIsClearing(true);
+    try {
+      const { error } = await supabase
+        .from('n8n_chat_histories')
+        .delete()
+        .eq('session_id', leadId);
+
+      if (error) throw error;
+      setMessages([]);
+      console.log('Histórico limpo com sucesso');
+    } catch (err) {
+      console.error('Erro ao limpar histórico:', err);
+      alert('Erro ao limpar histórico: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!newMessage.trim() || !leadId || isSending) return;
@@ -110,13 +137,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
 
     try {
       // 1. Persistir no Supabase para o histórico aparecer no CRM
+      const userName = user?.email?.split('@')[0] || 'Equipe';
       const { error: supabaseError } = await supabase
         .from('n8n_chat_histories')
         .insert([{
           session_id: leadId,
           message: {
             type: 'ai',
-            content: messageContent
+            content: messageContent,
+            from_crm: true,
+            sender_name: userName
           },
           hora_data_mensagem: new Date().toISOString()
         }]);
@@ -205,6 +235,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
             </div>
           </div>
         </div>
+
+        <button
+          onClick={handleClearHistory}
+          disabled={isClearing || messages.length === 0}
+          className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-all"
+          title="Limpar Histórico"
+        >
+          {isClearing ? (
+            <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+          ) : (
+            <Trash2 className="w-4 h-4" />
+          )}
+        </button>
       </div>
 
       {/* Info Bar */}
@@ -234,6 +277,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
 
               {msgs.map((msg) => {
                 const isAI = msg.message.type === 'ai';
+                const fromCRM = msg.message.from_crm;
+                const senderDisplay = fromCRM ? `${msg.message.sender_name || 'Equipe'} (CRM)` : (isAI ? 'Assistente AI' : 'Lead');
+
                 return (
                   <div 
                     key={msg.id} 
@@ -246,8 +292,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
                       "flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase tracking-wider",
                       isAI ? "text-zinc-400" : "text-primary/70"
                     )}>
-                      {isAI ? <Bot className="w-3 h-3" /> : <User className="w-3 h-3" />}
-                      <span>{isAI ? 'Assistente AI' : 'Lead'}</span>
+                      {fromCRM ? <UserCheck className="w-3 h-3 text-primary" /> : (isAI ? <Bot className="w-3 h-3" /> : <User className="w-3 h-3" />)}
+                      <span>{senderDisplay}</span>
                     </div>
 
                     <div className={cn(
