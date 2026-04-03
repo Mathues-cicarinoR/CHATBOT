@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '../../lib/utils';
-import { User, Bot, Send, Loader2, MessageSquare, Trash2, UserCheck, ChevronLeft, Zap, Paperclip, FileText, Volume2, Download } from 'lucide-react';
+import { User, Bot, Send, Loader2, MessageSquare, Trash2, UserCheck, ChevronLeft, Zap, Paperclip, FileText, Volume2, Download, Mic, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface Message {
@@ -35,8 +35,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
   const [isClearing, setIsClearing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  
   const viewportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const timerRef = useRef<any>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const templates = [
     "Olá! Como posso te ajudar hoje? 😊",
@@ -75,31 +81,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
     fetchMessages();
 
     const channel = supabase
-      .channel('chat_realtime')
+      .channel(`chat_${leadId}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'n8n_chat_histories'
-        },
+        { event: 'INSERT', schema: 'public', table: 'n8n_chat_histories' },
         (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const newMessage = payload.new as Message;
-            if (newMessage.session_id === leadId) {
-              if (!newMessage.hora_data_mensagem && !newMessage.created_at) {
-                newMessage.created_at = new Date().toISOString();
-              }
-              setMessages((prev) => [...prev, newMessage]);
-              scrollToBottom();
-            }
+          const newMsg = payload.new as Message;
+          if (newMsg.session_id === leadId) {
+            setMessages((prev) => [...prev, newMsg]);
+            scrollToBottom();
           }
         }
       )
       .subscribe();
 
     return () => {
-      channel.unsubscribe();
+      supabase.removeChannel(channel);
     };
   }, [leadId]);
 
@@ -108,12 +105,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
     msgs.forEach((msg) => {
       let dateKey = 'Sem data';
       const rawDate = msg.hora_data_mensagem || msg.created_at || new Date().toISOString();
-      if (rawDate) {
-        const date = new Date(rawDate);
-        if (isToday(date)) dateKey = 'Hoje';
-        else if (isYesterday(date)) dateKey = 'Ontem';
-        else dateKey = format(date, "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
-      }
+      const date = new Date(rawDate);
+      if (isToday(date)) dateKey = 'Hoje';
+      else if (isYesterday(date)) dateKey = 'Ontem';
+      else dateKey = format(date, "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
+      
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(msg);
     });
@@ -182,8 +178,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
         const whatsappNumber = leadId.split('@')[0];
 
         if (hasMedia) {
-          const mediaUrl = baseUrl.replace('/message/sendText', '/message/sendMedia');
-          await fetch(`${mediaUrl}/${instanceName}`, {
+          const apiBaseUrl = baseUrl.split('/message/')[0];
+          const mediaEndpoint = `${apiBaseUrl}/message/sendMedia/${instanceName}`;
+          
+          await fetch(mediaEndpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
             body: JSON.stringify({
@@ -191,7 +189,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
               media: mediaData.url,
               mediatype: mediaData.type === 'document' ? 'document' : mediaData.type,
               caption: messageContent,
-              fileName: mediaData.name || 'arquivo'
+              fileName: mediaData.name || 'arquivo',
+              mimetype: mediaData.type === 'audio' ? 'audio/mpeg' : (mediaData.type === 'image' ? 'image/png' : 'application/pdf')
             })
           });
         } else {
@@ -254,6 +253,61 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
     }
   };
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mpeg' });
+        const file = new File([audioBlob], `voice-note-${Date.now()}.mp3`, { type: 'audio/mpeg' });
+        const mockEvent = { target: { files: [file] } } as any;
+        await handleFileUpload(mockEvent);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      timerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Erro ao acessar microfone:', err);
+      alert("Erro ao acessar microfone. Verifique as permissões.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+      audioChunksRef.current = [];
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   if (!leadId) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-zinc-50/50 dark:bg-zinc-900/50 p-10 text-center">
@@ -277,9 +331,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
             {leadId?.[0]?.toUpperCase() || 'L'}
           </div>
           <div>
-            <p className="font-bold text-sm tracking-tight">{leadId}</p>
+            <p className="font-bold text-sm tracking-tight truncate max-w-[150px] md:max-w-none">{leadId}</p>
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <div className="w-2 h-2 rounded-full bg-green-500" />
               <select 
                 onChange={(e) => updateLeadStatus(e.target.value)}
                 className="text-[10px] bg-transparent text-zinc-400 font-medium uppercase tracking-wider outline-none cursor-pointer hover:text-primary transition-colors"
@@ -329,7 +383,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
                             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
                               <Volume2 className="w-4 h-4 text-primary" />
                             </div>
-                            <audio controls className="h-8 flex-1 text-primary">
+                            <audio controls className="h-8 flex-1">
                               <source src={msg.message.media_url} />
                             </audio>
                           </div>
@@ -342,7 +396,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-bold truncate">{msg.message.file_name || 'Documento'}</p>
                               <a href={msg.message.media_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary hover:underline flex items-center gap-1 mt-0.5">
-                                <Download className="w-3 h-3" /> Baixar Arquivo
+                                <Download className="w-3 h-3" /> Baixar
                               </a>
                             </div>
                           </div>
@@ -358,9 +412,35 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
         ))}
       </div>
 
-      <div className="p-4 bg-white dark:bg-zinc-950 flex flex-col gap-3">
+      <div className="p-4 bg-white dark:bg-zinc-950 flex flex-col gap-3 relative border-t border-border">
+        {isRecording && (
+          <div className="absolute inset-0 bg-white dark:bg-zinc-950 z-30 flex items-center justify-between px-6">
+            <div className="flex items-center gap-4 text-red-500">
+              <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+              <span className="font-mono font-bold text-lg">{formatTime(recordingTime)}</span>
+              <span className="text-[10px] uppercase tracking-widest opacity-70">Gravando...</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button 
+                type="button" 
+                onClick={stopRecording}
+                className="p-3 bg-primary text-white rounded-full shadow-lg"
+              >
+                <Send className="w-5 h-5" />
+              </button>
+              <button 
+                type="button" 
+                onClick={cancelRecording}
+                className="p-3 text-zinc-400 hover:text-red-500"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {showTemplates && (
-          <div className="flex flex-wrap gap-2 mb-1 animate-in slide-in-from-bottom-2 duration-200">
+          <div className="flex flex-wrap gap-2 mb-1">
             {templates.map((txt, idx) => (
               <button key={idx} onClick={() => handleSendMessage(undefined, txt)} className="text-xs px-3 py-1.5 bg-primary/5 dark:bg-primary/20 hover:bg-primary/10 dark:hover:bg-primary/30 text-primary border border-primary/20 rounded-full transition-all">
                 {txt.length > 25 ? txt.substring(0, 25) + '...' : txt}
@@ -368,18 +448,44 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
             ))}
           </div>
         )}
-        <form onSubmit={(e) => handleSendMessage(e)} className="relative group">
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+        
+        <form onSubmit={(e) => handleSendMessage(e)} className="relative group flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className={cn("p-1.5 transition-colors", isUploading ? "text-zinc-300" : "text-zinc-400 hover:text-primary")} title="Anexar arquivo">
-              {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading || isRecording} className="p-2 text-zinc-400 hover:text-primary transition-colors">
+              {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
             </button>
-            <button type="button" onClick={() => setShowTemplates(!showTemplates)} className={cn("p-1.5 transition-colors", showTemplates ? "text-primary" : "text-zinc-400 hover:text-primary")} title="Respostas rápidas"><Zap className="w-4 h-4" /></button>
+            <button type="button" onClick={() => setShowTemplates(!showTemplates)} className={cn("p-2 transition-colors", showTemplates ? "text-primary" : "text-zinc-400 hover:text-primary")}>
+              <Zap className="w-5 h-5" />
+            </button>
           </div>
-          <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder={isUploading ? "Carregando arquivo..." : "Digite sua mensagem..."} className="w-full pl-20 pr-12 py-3 bg-zinc-100 dark:bg-zinc-900 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all placeholder:text-zinc-400" disabled={isSending || isUploading} />
-          <button type="submit" disabled={(!newMessage.trim() && !isUploading) || isSending || isUploading} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary text-white rounded-xl hover:bg-primary-hover disabled:opacity-50 disabled:grayscale transition-all shadow-lg shadow-primary/20">
-            {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          </button>
+          
+          <input 
+            type="text" 
+            value={newMessage} 
+            onChange={(e) => setNewMessage(e.target.value)} 
+            placeholder={isUploading ? "Carregando..." : "Digite uma mensagem..."} 
+            className="flex-1 px-4 py-2 bg-zinc-100 dark:bg-zinc-900 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none" 
+            disabled={isSending || isUploading || isRecording} 
+          />
+          
+          <div className="flex items-center gap-1">
+            <button 
+              type="button" 
+              onClick={startRecording}
+              disabled={isSending || isUploading || isRecording}
+              className="p-2 text-zinc-400 hover:text-primary disabled:opacity-20 transition-colors"
+            >
+              <Mic className="w-5 h-5" />
+            </button>
+            <button 
+              type="submit" 
+              disabled={(!newMessage.trim() && !isUploading) || isSending || isUploading || isRecording} 
+              className="p-2 bg-primary text-white rounded-xl shadow-lg disabled:opacity-50"
+            >
+              {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+            </button>
+          </div>
         </form>
       </div>
     </div>

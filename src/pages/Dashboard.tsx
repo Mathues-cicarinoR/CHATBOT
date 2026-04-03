@@ -16,11 +16,8 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-zinc-950 transition-colors duration-200">
       {/* Sidebar - Oculta no mobile se um lead estiver selecionado */}
-      <div className={cn(
-        "hidden md:block h-full transition-all duration-300",
-        selectedLeadId ? "w-20" : "w-64"
-      )}>
-        <SidebarNav />
+      <div className="hidden md:block h-full transition-all duration-300 shrink-0">
+        <SidebarNav isCollapsed={!!selectedLeadId} />
       </div>
 
       <div className="flex flex-1 h-full overflow-hidden relative">
