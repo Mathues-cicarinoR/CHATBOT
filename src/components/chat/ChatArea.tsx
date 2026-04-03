@@ -124,27 +124,48 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
       if (supabaseError) throw supabaseError;
 
       // 2. Disparar para a Evolution API para o envio real via WhatsApp
-      // Remove o sufixo @s.whatsapp.net se existir, pois a Evolution espera apenas o número
-      const whatsappNumber = leadId.split('@')[0];
-      
-      console.log('Enviando para Evolution API:', { number: whatsappNumber, text: messageContent });
+      // Verifica se o leadId parece ser um número de WhatsApp (contém @s.whatsapp.net)
+      if (leadId.includes('@s.whatsapp.net')) {
+        const whatsappNumber = leadId.split('@')[0];
+        
+        console.log('Tentando enviar via WhatsApp:', { number: whatsappNumber });
 
-      const response = await fetch(import.meta.env.VITE_EVOLUTION_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': import.meta.env.VITE_EVOLUTION_API_KEY
-        },
-        body: JSON.stringify({
-          number: whatsappNumber,
-          text: messageContent
-        })
-      });
+        try {
+          const response = await fetch(import.meta.env.VITE_EVOLUTION_API_URL, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': import.meta.env.VITE_EVOLUTION_API_KEY
+            },
+            body: JSON.stringify({
+              number: whatsappNumber,
+              text: messageContent,
+              options: {
+                delay: 1200,
+                presence: "composing",
+                linkPreview: false
+              }
+            })
+          });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Erro Evolution API:', errorData);
-        throw new Error(`Erro Evolution API: ${response.statusText}`);
+          if (!response.ok) {
+            let errorText = '';
+            try {
+              const errorData = await response.json();
+              errorText = JSON.stringify(errorData);
+            } catch {
+              errorText = await response.text();
+            }
+            console.error('Erro detalhado Evolution API:', errorText);
+            throw new Error(`Falha no envio Evolution: ${response.status} ${response.statusText}`);
+          }
+          console.log('Mensagem enviada com sucesso via Evolution API');
+        } catch (fetchErr) {
+          console.error('Erro de rede/CORS ao chamar Evolution API:', fetchErr);
+          // Opcional: Notificar o usuário via UI que o envio de fato falhou
+        }
+      } else {
+        console.warn('Este lead não possui um número de WhatsApp válido (JID). O envio via Evolution API foi ignorado.', { leadId });
       }
 
       setNewMessage('');
@@ -289,5 +310,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
     </div>
   );
 };
+
 
 
