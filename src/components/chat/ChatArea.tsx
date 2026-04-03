@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '../../lib/utils';
-import { User, Bot, Send, Loader2, MessageSquare, Trash2, UserCheck, ChevronLeft, Zap, Paperclip } from 'lucide-react';
+import { User, Bot, Send, Loader2, MessageSquare, Trash2, UserCheck, ChevronLeft, Zap, Paperclip, FileText, Volume2, Download } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface Message {
@@ -14,6 +14,9 @@ interface Message {
     content: string;
     from_crm?: boolean;
     sender_name?: string;
+    media_url?: string;
+    media_type?: 'image' | 'video' | 'audio' | 'document' | 'application';
+    file_name?: string;
   };
   hora_data_mensagem: string | null;
   created_at?: string;
@@ -30,8 +33,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
   const [newMessage, setNewMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const templates = [
     "Olá! Como posso te ajudar hoje? 😊",
@@ -140,10 +145,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
     }
   };
 
-  const handleSendMessage = async (e?: React.FormEvent, content?: string) => {
+  const handleSendMessage = async (e?: React.FormEvent, content?: string, mediaData?: { url: string; type: string; name?: string }) => {
     if (e) e.preventDefault();
     const messageContent = content || newMessage;
-    if (!messageContent.trim() || !leadId || isSending) return;
+    const hasMedia = !!mediaData;
+    
+    if (!messageContent.trim() && !hasMedia) return;
+    if (!leadId || isSending) return;
 
     setIsSending(true);
     if (!content) setNewMessage('');
@@ -151,27 +159,98 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
 
     try {
       const userName = user?.email?.split('@')[0] || 'Equipe';
+      const mediaType = mediaData?.type as any;
+
       await supabase.from('n8n_chat_histories').insert([{
         session_id: leadId,
-        message: { type: 'ai', content: messageContent, from_crm: true, sender_name: userName },
+        message: { 
+          type: 'ai', 
+          content: messageContent, 
+          from_crm: true, 
+          sender_name: userName,
+          media_url: mediaData?.url,
+          media_type: mediaType,
+          file_name: mediaData?.name
+        },
         hora_data_mensagem: new Date().toISOString()
       }]);
 
       if (leadId.includes('@s.whatsapp.net')) {
-        const fullUrl = (import.meta.env.VITE_EVOLUTION_API_URL || '').trim();
+        const baseUrl = (import.meta.env.VITE_EVOLUTION_API_URL || '').trim();
         const apiKey = (import.meta.env.VITE_EVOLUTION_API_KEY || '').trim();
-        const instanceName = fullUrl.split('/').pop() || 'JEJE';
-        
-        await fetch(fullUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
-          body: JSON.stringify({ number: leadId.split('@')[0], instance: instanceName, text: messageContent })
-        });
+        const instanceName = baseUrl.split('/').pop() || 'JEJE';
+        const whatsappNumber = leadId.split('@')[0];
+
+        if (hasMedia) {
+          const mediaUrl = baseUrl.replace('/message/sendText', '/message/sendMedia');
+          await fetch(`${mediaUrl}/${instanceName}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
+            body: JSON.stringify({
+              number: whatsappNumber,
+              media: mediaData.url,
+              mediatype: mediaData.type === 'document' ? 'document' : mediaData.type,
+              caption: messageContent,
+              fileName: mediaData.name || 'arquivo'
+            })
+          });
+        } else {
+          await fetch(baseUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
+            body: JSON.stringify({ number: whatsappNumber, instance: instanceName, text: messageContent })
+          });
+        }
       }
     } catch (err) {
       console.error('Erro ao enviar:', err);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !leadId) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      alert("Arquivo muito grande! O limite é 50MB.");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
+      const filePath = `${leadId}/${fileName}`;
+
+      const { error } = await supabase.storage
+        .from('chat-media')
+        .upload(filePath, file);
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('chat-media')
+        .getPublicUrl(filePath);
+
+      let mediaType: 'image' | 'video' | 'audio' | 'document' = 'document';
+      if (file.type.startsWith('image/')) mediaType = 'image';
+      else if (file.type.startsWith('video/')) mediaType = 'video';
+      else if (file.type.startsWith('audio/')) mediaType = 'audio';
+
+      await handleSendMessage(undefined, undefined, { 
+        url: publicUrl, 
+        type: mediaType, 
+        name: file.name 
+      });
+
+    } catch (err) {
+      console.error('Erro no upload:', err);
+      alert("Erro ao enviar arquivo.");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -234,8 +313,43 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
                     {fromCRM ? <UserCheck className="w-3 h-3 text-primary" /> : (isAI ? <Bot className="w-3 h-3" /> : <User className="w-3 h-3" />)}
                     <span>{fromCRM ? `${msg.message.sender_name || 'Equipe'} (CRM)` : (isAI ? 'Assistente AI' : 'Lead')}</span>
                   </div>
-                  <div className={cn("p-4 rounded-2xl text-sm shadow-sm", isAI ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-border rounded-tl-none" : "bg-primary text-white rounded-tr-none")}>
-                    {msg.message.content}
+                  <div className={cn("p-4 rounded-2xl text-sm shadow-sm max-w-full overflow-hidden", isAI ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-border rounded-tl-none" : "bg-primary text-white rounded-tr-none")}>
+                    {msg.message.media_url && (
+                      <div className="mb-3 rounded-lg overflow-hidden bg-black/5 dark:bg-white/5">
+                        {msg.message.media_type === 'image' && (
+                          <img 
+                            src={msg.message.media_url} 
+                            alt="Mídia" 
+                            className="max-w-full h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity" 
+                            onClick={() => window.open(msg.message.media_url, '_blank')}
+                          />
+                        )}
+                        {msg.message.media_type === 'audio' && (
+                          <div className="p-2 flex items-center gap-3 min-w-[200px]">
+                            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                              <Volume2 className="w-4 h-4 text-primary" />
+                            </div>
+                            <audio controls className="h-8 flex-1 text-primary">
+                              <source src={msg.message.media_url} />
+                            </audio>
+                          </div>
+                        )}
+                        {(msg.message.media_type === 'document' || msg.message.media_type === 'application') && (
+                          <div className="p-3 flex items-center gap-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
+                            <div className="w-10 h-10 rounded-lg bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center">
+                              <FileText className="w-6 h-6 text-zinc-500" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold truncate">{msg.message.file_name || 'Documento'}</p>
+                              <a href={msg.message.media_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary hover:underline flex items-center gap-1 mt-0.5">
+                                <Download className="w-3 h-3" /> Baixar Arquivo
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className="whitespace-pre-wrap">{msg.message.content}</div>
                   </div>
                 </div>
               );
@@ -256,11 +370,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
         )}
         <form onSubmit={(e) => handleSendMessage(e)} className="relative group">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
-            <button type="button" className="p-1.5 text-zinc-400 hover:text-primary transition-colors" title="Anexar arquivo"><Paperclip className="w-4 h-4" /></button>
+            <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className={cn("p-1.5 transition-colors", isUploading ? "text-zinc-300" : "text-zinc-400 hover:text-primary")} title="Anexar arquivo">
+              {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+            </button>
             <button type="button" onClick={() => setShowTemplates(!showTemplates)} className={cn("p-1.5 transition-colors", showTemplates ? "text-primary" : "text-zinc-400 hover:text-primary")} title="Respostas rápidas"><Zap className="w-4 h-4" /></button>
           </div>
-          <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Digite sua mensagem..." className="w-full pl-20 pr-12 py-3 bg-zinc-100 dark:bg-zinc-900 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all placeholder:text-zinc-400" disabled={isSending} />
-          <button type="submit" disabled={!newMessage.trim() || isSending} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary text-white rounded-xl hover:bg-primary-hover disabled:opacity-50 disabled:grayscale transition-all shadow-lg shadow-primary/20">
+          <input type="text" value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder={isUploading ? "Carregando arquivo..." : "Digite sua mensagem..."} className="w-full pl-20 pr-12 py-3 bg-zinc-100 dark:bg-zinc-900 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all placeholder:text-zinc-400" disabled={isSending || isUploading} />
+          <button type="submit" disabled={(!newMessage.trim() && !isUploading) || isSending || isUploading} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary text-white rounded-xl hover:bg-primary-hover disabled:opacity-50 disabled:grayscale transition-all shadow-lg shadow-primary/20">
             {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </button>
         </form>
