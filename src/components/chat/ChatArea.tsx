@@ -127,13 +127,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
       // Verifica se o leadId parece ser um número de WhatsApp (contém @s.whatsapp.net)
       if (leadId.includes('@s.whatsapp.net')) {
         const whatsappNumber = leadId.split('@')[0];
-        const apiUrl = import.meta.env.VITE_EVOLUTION_API_URL.trim();
+        const fullUrl = import.meta.env.VITE_EVOLUTION_API_URL.trim();
         const apiKey = import.meta.env.VITE_EVOLUTION_API_KEY.trim();
         
-        console.log('Tentando envio básico Evolution API:', { url: apiUrl, number: whatsappNumber });
+        // Tenta extrair o nome da instância da URL se o usuário ainda não removeu
+        const instanceName = fullUrl.split('/').pop() || 'JEJE';
+        
+        console.log('Tentando formato Alternativo (v1/v2):', { url: fullUrl, instance: instanceName });
 
         try {
-          const response = await fetch(apiUrl, {
+          const response = await fetch(fullUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -141,6 +144,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
             },
             body: JSON.stringify({
               number: whatsappNumber,
+              instance: instanceName, // Adicionado para compatibilidade v1
               text: messageContent
             })
           });
@@ -148,13 +152,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
           const responseText = await response.text();
 
           if (!response.ok) {
-            console.error('Erro 405 ou similar do servidor:', responseText);
-            throw new Error(`Erro na API: ${response.status} ${response.statusText}`);
+            console.error('Servidor recusou a requisição (405 ou outro):', responseText);
+            throw new Error(`Erro API: ${response.status}`);
           }
 
-          console.log('Sucesso no envio:', responseText);
+          console.log('Envio bem-sucedido!', responseText);
         } catch (fetchErr) {
-          console.error('Erro na comunicação:', fetchErr);
+          console.error('Erro de conexão:', fetchErr);
         }
       } else {
         console.warn('Lead sem WhatsApp válido:', leadId);
@@ -302,4 +306,5 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
     </div>
   );
 };
+
 
