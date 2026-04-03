@@ -5,6 +5,7 @@ import { ptBR } from 'date-fns/locale';
 import { cn } from '../../lib/utils';
 import { User, Bot, Send, Loader2, MessageSquare, Trash2, UserCheck, ChevronLeft, Zap, Paperclip, FileText, Volume2, Download, Mic, X, Edit3, Check } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { type Lead } from './LeadList';
 
 interface Message {
   id: number;
@@ -23,9 +24,9 @@ interface Message {
 }
 
 interface ChatAreaProps {
-  lead: any | null;
+  lead: Lead | null;
   onBack?: () => void;
-  onUpdate?: (newData: any) => void;
+  onUpdate?: (newData: Partial<Lead>) => void;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) => {
@@ -132,7 +133,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
   const updateLeadStatus = async (status: string) => {
     if (!leadId) return;
     try {
-      const { error } = await supabase.from('Leads').update({ status }).eq('id', lead.id);
+      const { error } = await supabase.from('Leads').update({ status }).eq('id', lead?.id);
       if (error) throw error;
       if (onUpdate) onUpdate({ status });
     } catch (err) {
@@ -384,10 +385,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
       const { error } = await supabase
         .from('Leads')
         .update({ lead_nome: editedName })
-        .eq('id', lead.id);
+        .eq('id', lead?.id);
 
       if (error) throw error;
-      lead.lead_nome = editedName; // Atualização otimista
+      if (lead) lead.lead_nome = editedName; // Atualização otimista
       if (onUpdate) onUpdate({ lead_nome: editedName });
       setIsEditingName(false);
     } catch (err) {

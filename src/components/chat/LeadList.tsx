@@ -5,7 +5,7 @@ import { cn } from '../../lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-interface Lead {
+export interface Lead {
   id: number;
   lead_nome: string;
   lead_id: string;

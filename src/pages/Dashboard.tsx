@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
 import { SidebarNav } from '../components/layout/SidebarNav';
-import { LeadList } from '../components/chat/LeadList';
+import { LeadList, type Lead } from '../components/chat/LeadList';
 import { ChatArea } from '../components/chat/ChatArea';
 import { Outlet, useLocation } from 'react-router-dom';
 import { cn } from '../lib/utils';
 
 export const Dashboard: React.FC = () => {
-  const [selectedLead, setSelectedLead] = useState<any | null>(null);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const location = useLocation();
 
-  const handleRefresh = () => setRefreshTrigger(prev => prev + 1);
+  const handleRefresh = () => setRefreshTrigger((prev: number) => prev + 1);
 
   // Se a rota for /mensagens ou /, mostramos o chat
   // Se for outra rota (ex: /contatos), mostramos o Outlet
@@ -30,7 +30,7 @@ export const Dashboard: React.FC = () => {
           selectedLead ? "hidden md:flex" : "flex"
         )}>
           <LeadList 
-            selectedLeadId={selectedLead?.lead_id} 
+            selectedLeadId={selectedLead?.lead_id || null} 
             onSelectLead={setSelectedLead} 
             refreshTrigger={refreshTrigger}
           />
@@ -44,8 +44,8 @@ export const Dashboard: React.FC = () => {
           <ChatArea 
             lead={selectedLead} 
             onBack={() => setSelectedLead(null)} 
-            onUpdate={(newData) => {
-              setSelectedLead(prev => ({ ...prev, ...newData }));
+            onUpdate={(newData: Partial<Lead>) => {
+              setSelectedLead((prev: Lead | null) => prev ? ({ ...prev, ...newData } as Lead) : null);
               handleRefresh();
             }}
           />
