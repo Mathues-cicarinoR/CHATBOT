@@ -65,9 +65,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
           event: 'INSERT',
           schema: 'public',
           table: 'n8n_chat_histories',
-          filter: `session_id=eq.${leadId}`,
+          filter: `session_id=eq.'${leadId}'`,
         },
         (payload) => {
+          console.log('Realtime update received:', payload);
           setMessages((prev) => [...prev, payload.new as Message]);
           scrollToBottom();
         }
@@ -123,6 +124,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
       if (supabaseError) throw supabaseError;
 
       // 2. Disparar para a Evolution API para o envio real via WhatsApp
+      // Remove o sufixo @s.whatsapp.net se existir, pois a Evolution espera apenas o número
+      const whatsappNumber = leadId.split('@')[0];
+      
+      console.log('Enviando para Evolution API:', { number: whatsappNumber, text: messageContent });
+
       const response = await fetch(import.meta.env.VITE_EVOLUTION_API_URL, {
         method: 'POST',
         headers: {
@@ -130,7 +136,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
           'apikey': import.meta.env.VITE_EVOLUTION_API_KEY
         },
         body: JSON.stringify({
-          number: leadId,
+          number: whatsappNumber,
           text: messageContent
         })
       });
@@ -138,6 +144,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
       if (!response.ok) {
         const errorData = await response.json();
         console.error('Erro Evolution API:', errorData);
+        throw new Error(`Erro Evolution API: ${response.statusText}`);
       }
 
       setNewMessage('');
@@ -282,4 +289,5 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
     </div>
   );
 };
+
 
