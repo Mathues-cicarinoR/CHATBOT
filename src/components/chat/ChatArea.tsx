@@ -62,29 +62,38 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
 
     fetchMessages();
 
-    // Realtime subscription
+    // Realtime subscription - Removendo filtro para garantir captura total
     const channel = supabase
       .channel('chat_realtime')
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*', // Ouvir todos os eventos (Insert, Update, Delete)
           schema: 'public',
-          table: 'n8n_chat_histories',
-          filter: `session_id=eq.'${leadId}'`,
+          table: 'n8n_chat_histories'
         },
         (payload) => {
-          console.log('Realtime update received:', payload);
-          const newMessage = payload.new as Message;
-          // Garante que o Realtime mostre a mensagem com uma data caso chegue null do n8n
-          if (!newMessage.hora_data_mensagem && !newMessage.created_at) {
-             newMessage.created_at = new Date().toISOString();
+          console.log('Realtime Event Received:', payload.eventType, payload);
+          
+          if (payload.eventType === 'INSERT') {
+            const newMessage = payload.new as Message;
+            // Filtra manualmente se pertence a esta conversa
+            if (newMessage.session_id === leadId) {
+              if (!newMessage.hora_data_mensagem && !newMessage.created_at) {
+                newMessage.created_at = new Date().toISOString();
+              }
+              setMessages((prev) => [...prev, newMessage]);
+              scrollToBottom();
+            }
+          } else if (payload.eventType === 'DELETE') {
+            // Se for um delete geral, recarrega o histórico ou limpa
+            console.log('Mensagem deletada via Realtime');
           }
-          setMessages((prev) => [...prev, newMessage]);
-          scrollToBottom();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Realtime Status:', status);
+      });
 
     return () => {
       channel.unsubscribe();
@@ -121,14 +130,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
 
     setIsClearing(true);
     try {
-      const { error } = await supabase
+      const { error, data } = await supabase
         .from('n8n_chat_histories')
         .delete()
-        .eq('session_id', leadId);
+        .eq('session_id', leadId)
+        .select(); // Adicionado select para confirmar a exclusão
 
       if (error) throw error;
+      
+      console.log('Registros deletados:', data?.length);
       setMessages([]);
-      console.log('Histórico limpo com sucesso');
+      alert('Conversa limpa com sucesso!');
     } catch (err) {
       console.error('Erro ao limpar histórico:', err);
       alert('Erro ao limpar histórico: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
