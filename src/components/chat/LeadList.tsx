@@ -16,7 +16,7 @@ interface Lead {
 
 interface LeadListProps {
   selectedLeadId: string | null;
-  onSelectLead: (leadId: string) => void;
+  onSelectLead: (lead: Lead | null) => void;
 }
 
 export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead }) => {
@@ -71,7 +71,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
 
       if (data && data[0]) {
         await fetchLeads();
-        onSelectLead(data[0].lead_id);
+        onSelectLead(data[0]);
         setIsAddingLead(false);
         setNewLeadName('');
         setNewLeadPhone('');
@@ -89,15 +89,15 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
     if (!confirm(`Tem certeza que deseja excluir a conversa com ${lead.lead_nome || lead.lead_id}? Isso apagará todo o histórico.`)) return;
 
     try {
-      // Deletar da tabela Leads
+      // Deletar da tabela Leads usando o ID numérico
       const { error: leadError } = await supabase
         .from('Leads')
         .delete()
-        .eq('lead_id', lead.lead_id);
+        .eq('id', lead.id);
 
       if (leadError) throw leadError;
 
-      // Deletar histórico de mensagens
+      // Deletar histórico de mensagens usando o lead_id (session_id)
       await supabase
         .from('n8n_chat_histories')
         .delete()
@@ -105,7 +105,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
 
       await fetchLeads();
       if (selectedLeadId === lead.lead_id) {
-        onSelectLead('');
+        onSelectLead(null);
       }
     } catch (err) {
       console.error('Erro ao deletar lead:', err);
@@ -113,10 +113,21 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
     }
   };
 
-  const filteredLeads = leads.filter(lead => 
-    lead.lead_nome?.toLowerCase().includes(search.toLowerCase()) ||
-    lead.lead_id?.includes(search)
-  );
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+
+  const filteredLeads = leads.filter(lead => {
+    const matchesSearch = lead.lead_nome?.toLowerCase().includes(search.toLowerCase()) ||
+                         lead.lead_id?.includes(search);
+    const matchesStatus = !filterStatus || lead.status === filterStatus;
+    return matchesSearch && matchesStatus;
+  });
+
+  const statuses = [
+    { id: 'novo', label: 'Novo', color: 'bg-blue-500' },
+    { id: 'frio', label: 'Frio', color: 'bg-zinc-400' },
+    { id: 'quente', label: 'Quente', color: 'bg-orange-500' },
+    { id: 'venda', label: 'Venda', color: 'bg-green-500' },
+  ];
 
   return (
     <div className="h-full w-[300px] shrink-0 flex flex-col bg-white dark:bg-zinc-950 border-r border-border transition-colors duration-200">
@@ -181,6 +192,34 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar shrink-0">
+          <button 
+            onClick={() => setFilterStatus(null)}
+            className={cn(
+              "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all whitespace-nowrap",
+              !filterStatus 
+                ? "bg-zinc-900 text-white border-zinc-900 dark:bg-white dark:text-zinc-900 dark:border-white" 
+                : "bg-transparent text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400"
+            )}
+          >
+            Todos
+          </button>
+          {statuses.map(status => (
+            <button 
+              key={status.id}
+              onClick={() => setFilterStatus(status.id)}
+              className={cn(
+                "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all whitespace-nowrap",
+                filterStatus === status.id 
+                  ? "bg-primary text-white border-primary" 
+                  : "bg-transparent text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400"
+              )}
+            >
+              {status.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -193,7 +232,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
             {filteredLeads.map((lead) => (
               <button
                 key={lead.id}
-                onClick={() => onSelectLead(lead.lead_id)}
+                onClick={() => onSelectLead(lead)}
                 className={cn(
                   "w-full flex items-center gap-3 p-3 rounded-xl transition-all group relative",
                   selectedLeadId === lead.lead_id 

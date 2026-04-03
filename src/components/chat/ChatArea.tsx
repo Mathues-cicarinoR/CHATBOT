@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '../../lib/utils';
-import { User, Bot, Send, Loader2, MessageSquare, Trash2, UserCheck, ChevronLeft, Zap, Paperclip, FileText, Volume2, Download, Mic, X } from 'lucide-react';
+import { User, Bot, Send, Loader2, MessageSquare, Trash2, UserCheck, ChevronLeft, Zap, Paperclip, FileText, Volume2, Download, Mic, X, Edit3, Check } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface Message {
@@ -23,11 +23,12 @@ interface Message {
 }
 
 interface ChatAreaProps {
-  leadId: string | null;
+  lead: any | null;
   onBack?: () => void;
 }
 
-export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
+export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack }) => {
+  const leadId = lead?.lead_id || null;
   const { user } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -37,6 +38,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
   const [showTemplates, setShowTemplates] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState(lead?.lead_nome || '');
+  const [isUpdatingName, setIsUpdatingName] = useState(false);
   
   const viewportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -364,6 +369,31 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
     }
   };
 
+  useEffect(() => {
+    setEditedName(lead?.lead_nome || '');
+    setIsEditingName(false);
+  }, [lead]);
+
+  const handleUpdateName = async () => {
+    if (!lead || !editedName.trim() || isUpdatingName) return;
+    setIsUpdatingName(true);
+    try {
+      const { error } = await supabase
+        .from('Leads')
+        .update({ lead_nome: editedName })
+        .eq('id', lead.id);
+
+      if (error) throw error;
+      lead.lead_nome = editedName; // Atualização otimista
+      setIsEditingName(false);
+    } catch (err) {
+      console.error('Erro ao atualizar nome:', err);
+      alert('Erro ao atualizar nome.');
+    } finally {
+      setIsUpdatingName(false);
+    }
+  };
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -390,16 +420,49 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
             </button>
           )}
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shadow-sm border border-primary/10 shrink-0">
-            {leadId?.[0]?.toUpperCase() || 'L'}
+            {(lead?.lead_nome?.[0] || leadId?.[0])?.toUpperCase() || 'L'}
           </div>
-          <div className="min-w-0">
-            <p className="font-bold text-sm tracking-tight truncate">{leadId}</p>
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500" />
+              {isEditingName ? (
+                <div className="flex items-center gap-1 flex-1">
+                  <input 
+                    type="text" 
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    className="bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20 w-full"
+                    autoFocus
+                    onKeyDown={(e) => e.key === 'Enter' && handleUpdateName()}
+                  />
+                  <button onClick={handleUpdateName} disabled={isUpdatingName} className="p-1 text-green-500 hover:bg-green-50 rounded">
+                    {isUpdatingName ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                  </button>
+                  <button onClick={() => setIsEditingName(false)} className="p-1 text-red-500 hover:bg-red-50 rounded">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="font-bold text-sm tracking-tight truncate dark:text-white">
+                    {lead?.lead_nome || leadId}
+                  </p>
+                  <button 
+                    onClick={() => setIsEditingName(true)}
+                    className="p-1 text-zinc-400 hover:text-primary transition-colors"
+                  >
+                    <Edit3 className="w-3 h-3" />
+                  </button>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+              <p className="text-[10px] text-zinc-400 truncate max-w-[150px]">{leadId}</p>
+              <span className="text-zinc-300 dark:text-zinc-700 mx-0.5">•</span>
               <select 
+                value={lead?.status || 'novo'}
                 onChange={(e) => updateLeadStatus(e.target.value)}
                 className="text-[10px] bg-transparent text-zinc-400 font-medium uppercase tracking-wider outline-none cursor-pointer hover:text-primary transition-colors"
-                defaultValue="novo"
               >
                 <option value="novo">🔵 Novo</option>
                 <option value="frio">❄️ Frio</option>
@@ -423,13 +486,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
             {msgs.map((msg) => {
               const isAI = msg.message.type === 'ai';
               const fromCRM = msg.message.from_crm;
+              const isSentByMe = isAI || fromCRM;
+              
               return (
-                <div key={msg.id} className={cn("flex flex-col max-w-[80%] group", isAI ? "items-start" : "items-end ml-auto")}>
-                  <div className={cn("flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase tracking-wider", isAI ? "text-zinc-400" : "text-primary/70")}>
+                <div key={msg.id} className={cn("flex flex-col max-w-[80%] group", isSentByMe ? "items-end ml-auto" : "items-start")}>
+                  <div className={cn("flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase tracking-wider", isSentByMe ? "text-primary/70" : "text-zinc-400")}>
                     {fromCRM ? <UserCheck className="w-3 h-3 text-primary" /> : (isAI ? <Bot className="w-3 h-3" /> : <User className="w-3 h-3" />)}
-                    <span>{fromCRM ? `${msg.message.sender_name || 'Equipe'} (CRM)` : (isAI ? 'Assistente AI' : 'Lead')}</span>
+                    <span>{fromCRM ? `${msg.message.sender_name || 'Equipe'} (CRM)` : (isAI ? 'Assistente AI' : (lead?.lead_nome || 'Lead'))}</span>
                   </div>
-                  <div className={cn("p-4 rounded-2xl text-sm shadow-sm max-w-full overflow-hidden", isAI ? "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-border rounded-tl-none" : "bg-primary text-white rounded-tr-none")}>
+                  <div className={cn("p-4 rounded-2xl text-sm shadow-sm max-w-full overflow-hidden", isSentByMe ? "bg-primary text-white rounded-tr-none" : "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-border rounded-tl-none")}>
                     {msg.message.media_url && (
                       <div className="mb-3 rounded-lg overflow-hidden bg-black/5 dark:bg-white/5 min-w-[200px]">
                         {msg.message.media_type === 'image' && (

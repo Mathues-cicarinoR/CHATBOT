@@ -6,7 +6,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { cn } from '../lib/utils';
 
 export const Dashboard: React.FC = () => {
-  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [selectedLead, setSelectedLead] = useState<any | null>(null);
   const location = useLocation();
 
   // Se a rota for /mensagens ou /, mostramos o chat
@@ -17,24 +17,24 @@ export const Dashboard: React.FC = () => {
     <div className="flex h-screen w-screen overflow-hidden bg-white dark:bg-zinc-950 transition-colors duration-200">
       {/* Sidebar - Oculta no mobile se um lead estiver selecionado */}
       <div className="hidden md:block h-full transition-all duration-300 shrink-0">
-        <SidebarNav isCollapsed={!!selectedLeadId} />
+        <SidebarNav isCollapsed={!!selectedLead} />
       </div>
 
       <div className="flex flex-1 h-full overflow-hidden relative">
         {/* Lista de Leads - Oculta no mobile se um lead estiver selecionado */}
         <div className={cn(
           "w-full md:w-[320px] lg:w-[380px] h-full border-r border-border transition-all duration-300",
-          selectedLeadId ? "hidden md:flex" : "flex"
+          selectedLead ? "hidden md:flex" : "flex"
         )}>
-          <LeadList selectedLeadId={selectedLeadId} onSelectLead={setSelectedLeadId} />
+          <LeadList selectedLeadId={selectedLead?.lead_id} onSelectLead={setSelectedLead} />
         </div>
 
         {/* Área de Chat - Ocupa tela cheia no mobile se selecionado */}
         <div className={cn(
           "flex-1 h-full transition-all duration-300 bg-zinc-50/50 dark:bg-zinc-900/10",
-          !selectedLeadId ? "hidden md:flex" : "flex"
+          !selectedLead ? "hidden md:flex" : "flex"
         )}>
-          <ChatArea leadId={selectedLeadId} onBack={() => setSelectedLeadId(null)} />
+          <ChatArea lead={selectedLead} onBack={() => setSelectedLead(null)} />
         </div>
       </div>
 
