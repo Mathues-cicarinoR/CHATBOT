@@ -63,7 +63,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
   useEffect(() => {
     if (!leadId) return;
 
-    // 1. Carregar mensagens iniciais
     const fetchMessages = async () => {
       const { data, error } = await supabase
         .from('n8n_chat_histories')
@@ -81,36 +80,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
 
     fetchMessages();
 
-    // 2. Realtime Subscription (Simplificada e robusta)
-    // Usamos um nome de canal simples sem caracteres especiais
-    const channelName = `messages_room`;
+    // Canal global de mensagens para estabilidade
     const channel = supabase
-      .channel(channelName)
+      .channel('public_chat_room')
       .on(
         'postgres_changes',
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'n8n_chat_histories' 
-        },
+        { event: 'INSERT', schema: 'public', table: 'n8n_chat_histories' },
         (payload) => {
           const newMsg = payload.new as Message;
-          // Verificamos se a mensagem pertence ao lead atual
           if (newMsg.session_id === leadId) {
             setMessages((prev) => {
-              // Evitar duplicidade caso o fetch e o realtime ocorram simultâneos
               if (prev.some(m => m.id === newMsg.id)) return prev;
-              return [...prev, newMsg];
+              const updated = [...prev, newMsg];
+              return updated.sort((a, b) => a.id - b.id);
             });
             scrollToBottom();
           }
         }
       )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('Realtime: Conectado ao chat de', leadId);
-        }
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
@@ -158,7 +146,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
     }
   };
 
-  const handleSendMessage = async (e?: React.FormEvent, content?: string, mediaData?: { url: string; type: string; name?: string }) => {
+  const handleSendMessage = async (e?: React.FormEvent, content?: string, mediaData?: { url: string; type: string; name?: string; mimetype?: string }) => {
     if (e) e.preventDefault();
     const messageContent = content || newMessage;
     const hasMedia = !!mediaData;
@@ -170,11 +158,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
     if (!content) setNewMessage('');
     setShowTemplates(false);
 
+    console.log('Iniciando envio:', { messageContent, hasMedia, mediaData });
+
     try {
       const userName = user?.email?.split('@')[0] || 'Equipe';
       const mediaType = mediaData?.type as any;
 
-      const { error: dbError } = await supabase.from('n8n_chat_histories').insert([{
+      // Inserção no Banco de Dados
+      const { data: inserted, error: dbError } = await supabase.from('n8n_chat_histories').insert([{
         session_id: leadId,
         message: { 
           type: 'ai', 
@@ -186,32 +177,75 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
           file_name: mediaData?.name
         },
         hora_data_mensagem: new Date().toISOString()
-      }]);
+      }]).select();
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        console.error('Erro no Supabase:', dbError);
+      } else if (inserted) {
+        // Atualização imediata da UI para evitar sensação de travamento
+        setMessages(prev => {
+          if (prev.some(m => m.id === inserted[0].id)) return prev;
+          return [...prev, inserted[0]].sort((a,b) => a.id - b.id);
+        });
+        scrollToBottom();
+      }
 
+      // Envio para Evolution API
       if (leadId.includes('@s.whatsapp.net')) {
         const baseUrl = (import.meta.env.VITE_EVOLUTION_API_URL || '').trim();
         const apiKey = (import.meta.env.VITE_EVOLUTION_API_KEY || '').trim();
         const instanceName = baseUrl.split('/').pop() || 'JEJE';
         const whatsappNumber = leadId.split('@')[0];
+        const apiBaseUrl = baseUrl.split('/message/')[0];
 
-        if (hasMedia) {
-          const apiBaseUrl = baseUrl.split('/message/')[0];
-          const mediaEndpoint = `${apiBaseUrl}/message/sendMedia/${instanceName}`;
-          
-          await fetch(mediaEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
-            body: JSON.stringify({
+          if (hasMedia) {
+          const mediaType = mediaData.type;
+          const mimetype = mediaData.mimetype || (mediaType === 'image' ? 'image/png' : 'application/pdf');
+
+          if (mediaType === 'audio') {
+            // No Evolution API v2, o endpoint padrão é /message/sendAudio/:instance
+            const audioEndpoint = `${apiBaseUrl}/message/sendAudio/${instanceName}`;
+            const payload = {
+              number: whatsappNumber,
+              audio: mediaData.url,
+              delay: 1200,
+              encoding: true,
+              type: 'ptt' // Para enviar como áudio gravado
+            };
+            console.log('Enviando Áudio (PTT):', { audioEndpoint, payload });
+            
+            const response = await fetch(audioEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              console.error('Erro Evolution Áudio:', errorData);
+            }
+          } else {
+            const mediaEndpoint = `${apiBaseUrl}/message/sendMedia/${instanceName}`;
+            const payload = {
               number: whatsappNumber,
               media: mediaData.url,
-              mediatype: mediaData.type === 'document' ? 'document' : (mediaData.type === 'audio' ? 'ptt' : mediaData.type),
+              mediatype: mediaType === 'document' ? 'document' : mediaType,
               caption: messageContent,
               fileName: mediaData.name || 'arquivo',
-              mimetype: mediaData.type === 'audio' ? 'audio/ogg; codecs=opus' : (mediaData.type === 'image' ? 'image/png' : 'application/pdf')
-            })
-          });
+              mimetype: mimetype
+            };
+            console.log('Enviando Mídia:', { mediaEndpoint, payload });
+
+            const response = await fetch(mediaEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
+              body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              console.error('Erro Evolution Mídia:', errorData);
+              // Caso o sendMedia falhe em versões específicas, tentamos uma alternativa simplificada ou alertamos
+            }
+          }
         } else {
           await fetch(baseUrl, {
             method: 'POST',
@@ -221,7 +255,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
         }
       }
     } catch (err) {
-      console.error('Erro ao enviar:', err);
+      console.error('Erro no envio API:', err);
     } finally {
       setIsSending(false);
     }
@@ -230,6 +264,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !leadId) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      alert("Arquivo muito grande! O limite é 50MB.");
+      return;
+    }
+
+    console.log('Iniciando upload de arquivo:', { name: file.name, type: file.type, size: file.size });
 
     if (file.size > 50 * 1024 * 1024) {
       alert("Arquivo muito grande! O limite é 50MB.");
@@ -255,17 +296,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
       let mediaType: 'image' | 'video' | 'audio' | 'document' = 'document';
       if (file.type.startsWith('image/')) mediaType = 'image';
       else if (file.type.startsWith('video/')) mediaType = 'video';
-      else if (file.type.startsWith('audio/')) mediaType = 'audio';
+      else if (file.type.startsWith('audio/') || file.name.endsWith('.ogg') || file.name.endsWith('.webm')) mediaType = 'audio';
+      
+      console.log('Arquivo carregado no Storage:', { publicUrl, mediaType });
 
       await handleSendMessage(undefined, undefined, { 
         url: publicUrl, 
         type: mediaType, 
-        name: file.name 
+        name: file.name,
+        mimetype: file.type
       });
 
     } catch (err) {
-      console.error('Erro no upload:', err);
-      alert("Erro ao enviar arquivo.");
+      console.error('Erro no upload storage:', err);
+      alert("Erro ao subir arquivo.");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -274,11 +318,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
 
   const startRecording = async () => {
     try {
-      // Usar audio/webm ou audio/ogg se suportado
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') 
-        ? 'audio/webm;codecs=opus' 
-        : (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' : 'audio/webm');
-
+      const mimeType = 'audio/webm;codecs=opus';
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecorder;
@@ -289,8 +329,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        const file = new File([audioBlob], `voice-note-${Date.now()}.ogg`, { type: mimeType });
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/ogg; codecs=opus' });
+        const file = new File([audioBlob], `voice-${Date.now()}.ogg`, { type: 'audio/ogg' });
         const mockEvent = { target: { files: [file] } } as any;
         await handleFileUpload(mockEvent);
         stream.getTracks().forEach(track => track.stop());
@@ -303,8 +343,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
     } catch (err) {
-      console.error('Erro ao acessar microfone:', err);
-      alert("Erro ao acessar microfone. Verifique as permissões.");
+      console.error('Falha no microfone:', err);
+      alert("Permita o acesso ao microfone no navegador.");
     }
   };
 
@@ -438,7 +478,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId, onBack }) => {
 
       <div className="p-4 bg-white dark:bg-zinc-950 flex flex-col gap-3 relative border-t border-border">
         {isRecording && (
-          <div className="absolute inset-0 bg-white dark:bg-zinc-950 z-30 flex items-center justify-between px-6 border-t-2 border-primary">
+          <div className="absolute inset-0 bg-white dark:bg-zinc-950 z-40 flex items-center justify-between px-6 border-t-2 border-primary">
             <div className="flex items-center gap-4 text-red-500">
               <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
               <span className="font-mono font-bold text-lg">{formatTime(recordingTime)}</span>
