@@ -1,6 +1,7 @@
 node_modules
 dist
 .git
+# .env and .env.local removed to allow build-time variable injection
 .eslint.config.js
 README.md
 crm.zip

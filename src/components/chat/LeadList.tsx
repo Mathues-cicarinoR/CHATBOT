@@ -10,6 +10,8 @@ interface Lead {
   lead_nome: string;
   lead_id: string;
   created_at: string;
+  last_message_at: string;
+  status: string;
 }
 
 interface LeadListProps {
@@ -28,7 +30,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
       const { data, error } = await supabase
         .from('Leads')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('last_message_at', { ascending: false });
 
       if (error) {
         console.error('Error fetching leads:', error);
@@ -92,12 +94,24 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
                   <div className="flex items-center justify-between mb-0.5">
                     <p className="font-semibold text-sm truncate dark:text-zinc-100">{lead.lead_nome || 'Lead s/ nome'}</p>
                     <p className="text-[10px] text-zinc-400 shrink-0">
-                      {format(new Date(lead.created_at), 'HH:mm', { locale: ptBR })}
+                      {format(new Date(lead.last_message_at || lead.created_at), 'HH:mm', { locale: ptBR })}
                     </p>
                   </div>
-                  <p className="text-xs text-zinc-500 truncate group-hover:text-zinc-600 dark:group-hover:text-zinc-400">
-                    {lead.lead_id}
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-zinc-500 truncate group-hover:text-zinc-600 dark:group-hover:text-zinc-400">
+                      {lead.lead_id}
+                    </p>
+                    {lead.status && lead.status !== 'novo' && (
+                      <span className={cn(
+                        "text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider ml-2",
+                        lead.status === 'quente' ? "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400" :
+                        lead.status === 'venda' ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" :
+                        "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                      )}>
+                        {lead.status}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </button>
             ))}
