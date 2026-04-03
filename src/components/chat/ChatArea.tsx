@@ -128,6 +128,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
         const whatsappNumber = leadId.split('@')[0];
         const fullUrl = (import.meta.env.VITE_EVOLUTION_API_URL || '').trim();
         const apiKey = (import.meta.env.VITE_EVOLUTION_API_KEY || '').trim();
+
+        if (!fullUrl || fullUrl === 'undefined') {
+          console.error('ERRO CRÍTICO: VITE_EVOLUTION_API_URL não está configurada corretamente nas variáveis de ambiente!');
+          setIsSending(false);
+          return;
+        }
         
         // Determina a instância: Prioriza o que está na URL, senão usa 'JEJE'
         const instanceName = fullUrl.split('/').pop() || 'JEJE';
