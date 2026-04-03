@@ -134,13 +134,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
         .from('n8n_chat_histories')
         .delete()
         .eq('session_id', leadId)
-        .select(); // Adicionado select para confirmar a exclusão
+        .select(); // Força o retorno dos dados deletados para confirmação
 
-      if (error) throw error;
+      if (error) {
+        console.error('Erro do Supabase ao deletar:', error);
+        throw error;
+      }
       
-      console.log('Registros deletados:', data?.length);
+      const count = data?.length || 0;
+      console.log(`Sucesso: ${count} mensagens foram removidas do banco.`);
       setMessages([]);
-      alert('Conversa limpa com sucesso!');
+      alert(`Histórico limpo! ${count} mensagens removidas.`);
     } catch (err) {
       console.error('Erro ao limpar histórico:', err);
       alert('Erro ao limpar histórico: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
@@ -378,4 +382,5 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
     </div>
   );
 };
+
 
