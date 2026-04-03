@@ -16,6 +16,7 @@ interface Message {
     sender_name?: string;
   };
   hora_data_mensagem: string | null;
+  created_at?: string;
 }
 
 interface ChatAreaProps {
@@ -74,7 +75,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
         },
         (payload) => {
           console.log('Realtime update received:', payload);
-          setMessages((prev) => [...prev, payload.new as Message]);
+          const newMessage = payload.new as Message;
+          // Garante que o Realtime mostre a mensagem com uma data caso chegue null do n8n
+          if (!newMessage.hora_data_mensagem && !newMessage.created_at) {
+             newMessage.created_at = new Date().toISOString();
+          }
+          setMessages((prev) => [...prev, newMessage]);
           scrollToBottom();
         }
       )
@@ -90,8 +96,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
 
     msgs.forEach((msg) => {
       let dateKey = 'Sem data';
-      if (msg.hora_data_mensagem) {
-        const date = new Date(msg.hora_data_mensagem);
+      // Prioriza hora_data_mensagem (n8n antigo), depois created_at (novo), depois Now como fallback
+      const rawDate = msg.hora_data_mensagem || msg.created_at || new Date().toISOString();
+      
+      if (rawDate) {
+        const date = new Date(rawDate);
         if (isToday(date)) dateKey = 'Hoje';
         else if (isYesterday(date)) dateKey = 'Ontem';
         else dateKey = format(date, "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
@@ -357,5 +366,4 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
     </div>
   );
 };
-
 
