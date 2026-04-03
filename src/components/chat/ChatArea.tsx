@@ -127,45 +127,37 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
       // Verifica se o leadId parece ser um número de WhatsApp (contém @s.whatsapp.net)
       if (leadId.includes('@s.whatsapp.net')) {
         const whatsappNumber = leadId.split('@')[0];
+        const apiUrl = import.meta.env.VITE_EVOLUTION_API_URL.trim();
+        const apiKey = import.meta.env.VITE_EVOLUTION_API_KEY.trim();
         
-        console.log('Tentando enviar via WhatsApp:', { number: whatsappNumber });
+        console.log('Tentando envio básico Evolution API:', { url: apiUrl, number: whatsappNumber });
 
         try {
-          const response = await fetch(import.meta.env.VITE_EVOLUTION_API_URL, {
+          const response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'apikey': import.meta.env.VITE_EVOLUTION_API_KEY
+              'apikey': apiKey
             },
             body: JSON.stringify({
               number: whatsappNumber,
-              text: messageContent,
-              options: {
-                delay: 1200,
-                presence: "composing",
-                linkPreview: false
-              }
+              text: messageContent
             })
           });
 
           const responseText = await response.text();
 
           if (!response.ok) {
-            console.error('O servidor retornou erro HTML ou Texto:', responseText);
-            throw new Error(`Falha no envio Evolution: ${response.status} ${response.statusText}`);
+            console.error('Erro 405 ou similar do servidor:', responseText);
+            throw new Error(`Erro na API: ${response.status} ${response.statusText}`);
           }
 
-          try {
-            const data = JSON.parse(responseText);
-            console.log('Mensagem enviada com sucesso via Evolution API:', data);
-          } catch {
-            console.warn('A mensagem foi enviada, mas a resposta não era um JSON:', responseText);
-          }
+          console.log('Sucesso no envio:', responseText);
         } catch (fetchErr) {
-          console.error('Erro na comunicação com Evolution API:', fetchErr);
+          console.error('Erro na comunicação:', fetchErr);
         }
       } else {
-        console.warn('Este lead não possui um número de WhatsApp válido (JID). O envio via Evolution API foi ignorado.', { leadId });
+        console.warn('Lead sem WhatsApp válido:', leadId);
       }
 
       setNewMessage('');
