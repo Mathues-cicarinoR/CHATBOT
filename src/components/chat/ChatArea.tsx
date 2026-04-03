@@ -109,7 +109,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
     const messageContent = newMessage.trim();
 
     try {
-      // 1. Persistir no Supabase para o histórico aparecer no CRM (Realtime fará o resto)
+      // 1. Persistir no Supabase para o histórico aparecer no CRM
       const { error: supabaseError } = await supabase
         .from('n8n_chat_histories')
         .insert([{
@@ -123,17 +123,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
 
       if (supabaseError) throw supabaseError;
 
-      // 2. Disparar para a Evolution API para o envio real via WhatsApp
-      // Verifica se o leadId parece ser um número de WhatsApp (contém @s.whatsapp.net)
+      // 2. Disparar para a Evolution API
       if (leadId.includes('@s.whatsapp.net')) {
         const whatsappNumber = leadId.split('@')[0];
-        const fullUrl = import.meta.env.VITE_EVOLUTION_API_URL.trim();
-        const apiKey = import.meta.env.VITE_EVOLUTION_API_KEY.trim();
+        const fullUrl = (import.meta.env.VITE_EVOLUTION_API_URL || '').trim();
+        const apiKey = (import.meta.env.VITE_EVOLUTION_API_KEY || '').trim();
         
-        // Tenta extrair o nome da instância da URL se o usuário ainda não removeu
+        // Determina a instância: Prioriza o que está na URL, senão usa 'JEJE'
         const instanceName = fullUrl.split('/').pop() || 'JEJE';
         
-        console.log('Tentando formato Alternativo (v1/v2):', { url: fullUrl, instance: instanceName });
+        console.log('Enviando via Evolution API:', { url: fullUrl, instance: instanceName, number: whatsappNumber });
 
         try {
           const response = await fetch(fullUrl, {
@@ -144,7 +143,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
             },
             body: JSON.stringify({
               number: whatsappNumber,
-              instance: instanceName, // Adicionado para compatibilidade v1
+              instance: instanceName,
               text: messageContent
             })
           });
@@ -152,21 +151,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
           const responseText = await response.text();
 
           if (!response.ok) {
-            console.error('Servidor recusou a requisição (405 ou outro):', responseText);
+            console.error('API retornou erro:', response.status, responseText);
             throw new Error(`Erro API: ${response.status}`);
           }
 
-          console.log('Envio bem-sucedido!', responseText);
+          console.log('Mensagem enviada com sucesso!');
         } catch (fetchErr) {
-          console.error('Erro de conexão:', fetchErr);
+          console.error('Erro na chamada da Evolution API:', fetchErr);
         }
       } else {
-        console.warn('Lead sem WhatsApp válido:', leadId);
+        console.warn('Lead não é do WhatsApp, ignorando envio via API.');
       }
 
       setNewMessage('');
     } catch (err) {
-      console.error('Erro ao enviar mensagem:', err);
+      console.error('Erro geral ao enviar:', err);
     } finally {
       setIsSending(false);
     }
@@ -306,5 +305,4 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ leadId }) => {
     </div>
   );
 };
-
 
