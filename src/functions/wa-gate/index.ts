@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const EVO_URL = Deno.env.get("EVOLUTION_BASE_URL");
 const EVO_KEY = Deno.env.get("EVOLUTION_API_KEY");
-const INSTANCE = "crm";
+const INSTANCE = "CRM";
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    console.log(`[WA-GATE] Chamando ${method} ${target}`);
+    console.log(`[WA-GATE] Action: ${action} | Method: ${method} | Target: ${target}`);
     const res = await fetch(target, {
       method,
       headers: { 
@@ -53,19 +53,33 @@ Deno.serve(async (req) => {
       body: method === "POST" ? JSON.stringify({ instanceName: INSTANCE, qrcode: true }) : null
     });
     
+    // Se a instância não existe (404), tratamos como desconectado em vez de erro
+    if (action === "status" && res.status === 404) {
+      return new Response(JSON.stringify({ 
+        instance: { status: "disconnected", message: "Instância precisa ser inicializada" } 
+      }), { 
+        status: 200, 
+        headers: { ...cors, "Content-Type": "application/json" } 
+      });
+    }
+
     let data;
     try {
       data = await res.json();
     } catch (e) {
-      data = { error: "Erro ao processar resposta do servidor" };
+      data = { error: "Resposta inválida da Evolution API" };
     }
-    
+
+    // Retornamos 200 para o front conseguir ler o objeto de erro/status sem quebrar
     return new Response(JSON.stringify(data), { 
-      status: res.status,
+      status: 200,
       headers: { ...cors, "Content-Type": "application/json" } 
     });
   } catch (e) {
-    console.error("[WA-GATE] Erro:", e.message);
-    return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: cors });
+    console.error("[WA-GATE] Erro Crítico:", e.message);
+    return new Response(JSON.stringify({ error: e.message }), { 
+      status: 200, // Evita disparar o catch global do frontend
+      headers: { ...cors, "Content-Type": "application/json" } 
+    });
   }
 });
