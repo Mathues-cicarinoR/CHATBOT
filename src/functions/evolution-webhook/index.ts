@@ -20,11 +20,19 @@ Deno.serve(async (req) => {
   }
 
   try {
-
     const payload = await req.json();
     console.log("Webhook received:", JSON.stringify(payload, null, 2));
 
+    // Encaminhar para o n8n em segundo plano (não trava o processamento do CRM)
+    const n8nUrl = "https://chatbot-n8n.pde4mi.easypanel.host/webhook/ed6608a6-96ea-41df-863d-70588cab8739";
+    fetch(n8nUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+    }).catch(err => console.error("Error forwarding to n8n:", err));
+
     const { event, data, instance } = payload;
+
 
     // Apenas processamos mensagens recebidas (upsert)
     if (event !== "messages.upsert") {
