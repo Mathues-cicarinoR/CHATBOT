@@ -24,22 +24,19 @@ async function processBulkMessages(messages: any[]) {
                 const actualMessage = messageData.message || messageData;
                 
                 let content = "";
-                if (typeof actualMessage === 'string') content = actualMessage;
+                if (typeof actualMessage === 'string' && actualMessage.trim().length > 0) content = actualMessage;
                 else if (actualMessage.conversation) content = actualMessage.conversation;
                 else if (actualMessage.extendedTextMessage) content = actualMessage.extendedTextMessage.text || actualMessage.extendedTextMessage.caption;
                 else if (actualMessage.imageMessage) content = actualMessage.imageMessage.caption || "[Imagem]";
                 else if (actualMessage.audioMessage) content = "[Áudio]";
                 else if (actualMessage.videoMessage) content = actualMessage.videoMessage.caption || "[Vídeo]";
                 else if (actualMessage.documentMessage) content = actualMessage.documentMessage.fileName || "[Documento]";
-                else if (actualMessage.protocolMessage) continue; // Ignorar mensagens de protocolo
-                
-                // Content Fallback: Garantir que NENHUMA mensagem seja ignorada
-                if (!content) {
-                    if (actualMessage.stickerMessage) content = "[Figurinha]";
-                    else if (actualMessage.locationMessage) content = "[Localização]";
-                    else if (actualMessage.contactMessage) content = "[Contato]";
-                    else content = "[Mensagem]";
-                }
+                else if (actualMessage.stickerMessage) content = "[Figurinha]";
+                else if (actualMessage.locationMessage) content = "[Localização]";
+                else if (actualMessage.contactMessage) content = "[Contato]";
+
+                // 🔴 REGRA DE OURO v16: Se não há conteúdo, NÃO salva nada.
+                if (!content || (content === "[Mensagem]")) continue;
 
                 const messageTimestamp = msg.messageTimestamp 
                     ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() 
@@ -47,11 +44,11 @@ async function processBulkMessages(messages: any[]) {
 
                 histories.push({
                     session_id: remoteJid,
+                    msg_id: key.id || `${remoteJid}_${messageTimestamp}`, 
                     message: { 
                         type: key.fromMe ? "ai" : "human", 
                         content: String(content).slice(0, 5000),
-                        is_history: true,
-                        msg_id: key.id
+                        is_history: true
                     },
                     hora_data_mensagem: messageTimestamp
                 });
@@ -63,21 +60,19 @@ async function processBulkMessages(messages: any[]) {
                     is_active: true
                 });
             } catch (e) {
-                console.error(`[V13] Parse Error:`, e);
+                console.error(`[V17] Parse Error:`, e);
             }
         }
 
         if (histories.length) {
-            // Upsert para evitar erro de violação de restrição se houver retry
-            await supabase.from("n8n_chat_histories").upsert(histories, { onConflict: undefined });
+            await supabase.from("chat_messages").upsert(histories, { onConflict: "msg_id" });
         }
 
         const leadsToUpsert = Array.from(leadUpdates.values());
         if (leadsToUpsert.length) {
-            await supabase.from("Leads").upsert(leadsToUpsert, { onConflict: 'lead_id' });
+            await supabase.from("Leads").upsert(leadsToUpsert, { onConflict: "lead_id" });
         }
     }
-    console.log(`[V13] Processamento bulk finalizado com sucesso.`);
 }
 
 async function processSingleMessage(msgPayload: any) {
@@ -90,7 +85,10 @@ async function processSingleMessage(msgPayload: any) {
     else if (messageData.extendedTextMessage) content = messageData.extendedTextMessage.text;
     else if (messageData.imageMessage) content = messageData.imageMessage.caption || "[Imagem]";
     else if (messageData.audioMessage) content = "[Áudio]";
-    else content = "[Mensagem]";
+    else if (messageData.stickerMessage) content = "[Figurinha]";
+    
+    // Fallback apenas para mensagens em REAL-TIME se houver texto
+    if (!content) return; 
 
     const ts = messageTimestamp ? new Date(Number(messageTimestamp) * 1000).toISOString() : new Date().toISOString();
 
@@ -101,11 +99,12 @@ async function processSingleMessage(msgPayload: any) {
         is_active: true
     }, { onConflict: 'lead_id' });
 
-    await supabase.from("n8n_chat_histories").insert([{
+    await supabase.from("chat_messages").upsert([{
         session_id: remoteJid,
+        msg_id: key.id,
         message: { type: key.fromMe ? "ai" : "human", content: content },
         hora_data_mensagem: ts
-    }]);
+    }], { onConflict: "msg_id" });
 }
 
 Deno.serve(async (req) => {
@@ -113,27 +112,16 @@ Deno.serve(async (req) => {
         const payload = await req.json();
         const { event, data } = payload;
         
-        // n8n
-        fetch("https://chatbot-n8n.pde4mi.easypanel.host/webhook/ed6608a6-96ea-41df-863d-70588cab8739", {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
-        }).catch(() => {});
-
         if (event === "messages.upsert" || event === "MESSAGES_UPSERT") {
             await processSingleMessage(data);
         } else if (event === "messages.set" || event === "MESSAGES_SET") {
             const list = Array.isArray(data) ? data : (data?.messages || [data]);
-            console.log(`[V13] Iniciando processamento de ${list.length} itens do histórico.`);
+            console.log(`[V16] Processando ${list.length} itens do histórico.`);
             await processBulkMessages(list);
-        } else if (event.includes("contacts")) {
-            const contacts = Array.isArray(data) ? data : [data];
-            for (const c of contacts) {
-                const jid = c.remoteJid || c.id;
-                if (jid) await supabase.from("Leads").upsert({ lead_id: jid, lead_nome: c.pushName || c.name || jid.split("@")[0], is_active: true }, { onConflict: 'lead_id' });
-            }
         }
+        
         return new Response(JSON.stringify({ status: "ok" }), { headers: { "Content-Type": "application/json" } });
     } catch (e) {
-        console.error(`[V13] Erro:`, e);
         return new Response(JSON.stringify({ error: e.message }), { status: 500 });
     }
 });

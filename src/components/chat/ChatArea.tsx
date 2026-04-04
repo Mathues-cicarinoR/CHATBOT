@@ -72,7 +72,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
 
     const fetchMessages = async () => {
       const { data, error } = await supabase
-        .from('n8n_chat_histories')
+        .from('chat_messages')
         .select('*')
         .eq('session_id', leadId)
         .order('id', { ascending: true });
@@ -92,7 +92,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
       .channel('public_chat_room')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'n8n_chat_histories' },
+        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
         (payload) => {
           const newMsg = payload.new as Message;
           if (newMsg.session_id === leadId) {
@@ -146,7 +146,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
     if (!confirm('Tem certeza que deseja limpar todo o histórico desta conversa?')) return;
     setIsClearing(true);
     try {
-      await supabase.from('n8n_chat_histories').delete().eq('session_id', leadId);
+      await supabase.from('chat_messages').delete().eq('session_id', leadId);
       setMessages([]);
     } catch (err) {
       console.error('Erro ao limpar histórico:', err);
@@ -174,7 +174,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
       const mediaType = mediaData?.type as any;
 
       // Inserção no Banco de Dados
-      const { data: inserted, error: dbError } = await supabase.from('n8n_chat_histories').insert([{
+      const { data: inserted, error: dbError } = await supabase.from('chat_messages').insert([{
         session_id: leadId,
         message: { 
           type: 'ai', 
