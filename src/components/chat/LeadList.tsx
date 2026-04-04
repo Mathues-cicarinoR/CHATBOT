@@ -52,18 +52,26 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
 
     // Inscrição Realtime para atualizações automáticas na lista (Sincronização)
     const channel = supabase
-      .channel('leads-messages-updates')
+      .channel('sidebar-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'Leads' },
-        () => fetchLeads()
+        (payload) => {
+          console.log('Realtime Lead Update:', payload);
+          fetchLeads();
+        }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'chat_messages' },
-        () => fetchLeads()
+        (payload) => {
+          console.log('Realtime Message Update:', payload);
+          fetchLeads();
+        }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Realtime Subscription Status:', status);
+      });
 
     return () => {
       supabase.removeChannel(channel);

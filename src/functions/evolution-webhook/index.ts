@@ -5,14 +5,13 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-async function processBulkMessages(messages: any[]) {
-    if (!messages.length) return;
-    const CHUNK_SIZE = 50;
+async function processMessages(messages: any[]) {
+    if (!messages || !messages.length) return;
     
+    const CHUNK_SIZE = 50;
     for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
         const chunk = messages.slice(i, i + CHUNK_SIZE);
-        const histories = [];
-        const leadUpdates = new Map();
+        const bulkData = [];
 
         for (const msg of chunk) {
             try {
@@ -35,76 +34,35 @@ async function processBulkMessages(messages: any[]) {
                 else if (actualMessage.locationMessage) content = "[Localização]";
                 else if (actualMessage.contactMessage) content = "[Contato]";
 
-                // 🔴 REGRA DE OURO v16: Se não há conteúdo, NÃO salva nada.
-                if (!content || (content === "[Mensagem]")) continue;
+                if (!content || content === "[Mensagem]") continue;
 
-                const messageTimestamp = msg.messageTimestamp 
+                const timestamp = msg.messageTimestamp 
                     ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() 
                     : new Date().toISOString();
 
-                histories.push({
-                    session_id: remoteJid,
-                    msg_id: key.id || `${remoteJid}_${messageTimestamp}`, 
-                    message: { 
-                        type: key.fromMe ? "ai" : "human", 
-                        content: String(content).slice(0, 5000),
-                        is_history: true
-                    },
-                    hora_data_mensagem: messageTimestamp
-                });
-
-                leadUpdates.set(remoteJid, {
-                    lead_id: remoteJid,
-                    lead_nome: msg.pushName || remoteJid.split("@")[0],
-                    last_message_at: messageTimestamp,
-                    is_active: true
+                bulkData.push({
+                    remote_jid: remoteJid,
+                    push_name: msg.pushName || remoteJid.split("@")[0],
+                    content: String(content).slice(0, 5000),
+                    msg_id: key.id || `${remoteJid}_${timestamp}`,
+                    is_from_me: !!key.fromMe,
+                    timestamp: timestamp,
+                    is_history: !!msg.messageTimestamp
                 });
             } catch (e) {
-                console.error(`[V17] Parse Error:`, e);
+                console.error(`[V21] Loop Error:`, e);
             }
         }
 
-        if (histories.length) {
-            await supabase.from("chat_messages").upsert(histories, { onConflict: "msg_id" });
-        }
-
-        const leadsToUpsert = Array.from(leadUpdates.values());
-        if (leadsToUpsert.length) {
-            await supabase.from("Leads").upsert(leadsToUpsert, { onConflict: "lead_id" });
+        if (bulkData.length) {
+            // Chamada Turbo Bulk RPC (Processar lista inteira em uma transação)
+            const { error: bulkError } = await supabase.rpc('upsert_messages_bulk_v21', {
+                p_messages: bulkData
+            });
+            if (bulkError) console.error(`[V21] Bulk Error:`, bulkError);
+            else console.log(`[V21] Salvo lote de ${bulkData.length} mensagens.`);
         }
     }
-}
-
-async function processSingleMessage(msgPayload: any) {
-    const { key, message: messageData, pushName, messageTimestamp } = msgPayload;
-    if (!key || !messageData) return;
-    const remoteJid = key.remoteJid;
-
-    let content = "";
-    if (messageData.conversation) content = messageData.conversation;
-    else if (messageData.extendedTextMessage) content = messageData.extendedTextMessage.text;
-    else if (messageData.imageMessage) content = messageData.imageMessage.caption || "[Imagem]";
-    else if (messageData.audioMessage) content = "[Áudio]";
-    else if (messageData.stickerMessage) content = "[Figurinha]";
-    
-    // Fallback apenas para mensagens em REAL-TIME se houver texto
-    if (!content) return; 
-
-    const ts = messageTimestamp ? new Date(Number(messageTimestamp) * 1000).toISOString() : new Date().toISOString();
-
-    await supabase.from("Leads").upsert({
-        lead_id: remoteJid,
-        lead_nome: pushName || remoteJid.split("@")[0],
-        last_message_at: ts,
-        is_active: true
-    }, { onConflict: 'lead_id' });
-
-    await supabase.from("chat_messages").upsert([{
-        session_id: remoteJid,
-        msg_id: key.id,
-        message: { type: key.fromMe ? "ai" : "human", content: content },
-        hora_data_mensagem: ts
-    }], { onConflict: "msg_id" });
 }
 
 Deno.serve(async (req) => {
@@ -112,12 +70,15 @@ Deno.serve(async (req) => {
         const payload = await req.json();
         const { event, data } = payload;
         
-        if (event === "messages.upsert" || event === "MESSAGES_UPSERT") {
-            await processSingleMessage(data);
-        } else if (event === "messages.set" || event === "MESSAGES_SET") {
+        fetch("https://chatbot-n8n.pde4mi.easypanel.host/webhook/ed6608a6-96ea-41df-863d-70588cab8739", { 
+            method: "POST", 
+            headers: { "Content-Type": "application/json" }, 
+            body: JSON.stringify(payload) 
+        }).catch(() => {});
+
+        if (event.includes("messages")) {
             const list = Array.isArray(data) ? data : (data?.messages || [data]);
-            console.log(`[V16] Processando ${list.length} itens do histórico.`);
-            await processBulkMessages(list);
+            await processMessages(list);
         }
         
         return new Response(JSON.stringify({ status: "ok" }), { headers: { "Content-Type": "application/json" } });
