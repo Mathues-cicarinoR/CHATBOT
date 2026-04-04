@@ -147,11 +147,27 @@ Deno.serve(async (req) => {
       }]);
     }
 
-    // Processar Mídia com Base64 (mais resiliente)
-    const base64Data = data.base64 || payload.base64; // Tenta pegar de 'data' ou da raiz
+    // Função auxiliar para encontrar base64 em qualquer lugar do objeto
+    const findBase64 = (obj: any): string | null => {
+        if (!obj || typeof obj !== 'object') return null;
+        if (obj.base64 && typeof obj.base64 === 'string') return obj.base64;
+        for (const key in obj) {
+            const result = findBase64(obj[key]);
+            if (result) return result;
+        }
+        return null;
+    };
+
+    // Tentar encontrar o Base64 (na raiz, no data, no payload ou aninhado)
+    let base64Data = payload.base64 || data.base64 || findBase64(data.message);
     
     if (mediaType && base64Data) {
         try {
+            // Se vier com prefixo "data:image/png;base64,", removemos
+            if (base64Data.includes(',')) {
+                base64Data = base64Data.split(',')[1];
+            }
+
             const buffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
             const ext = mimetype?.split("/")[1]?.split(";")[0] || "file";
             const path = `${remoteJid}/${Date.now()}.${ext}`;
@@ -167,10 +183,10 @@ Deno.serve(async (req) => {
                 mediaUrl = publicUrl;
                 console.log("Media uploaded successfully:", mediaUrl);
             } else {
-                console.error("Storage upload error details:", uploadError);
+                console.error("Storage upload error:", uploadError);
             }
         } catch (mediaErr) {
-            console.error("Error decoding base64 media:", mediaErr);
+            console.error("Error decoding/uploading base64:", mediaErr);
         }
     }
 

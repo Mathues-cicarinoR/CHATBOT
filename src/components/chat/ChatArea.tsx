@@ -535,7 +535,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
                         )}
                       </div>
                     )}
-                    <div className="whitespace-pre-wrap">{msg.message.content}</div>
+                    <div className="flex items-end gap-2">
+                       <div className="whitespace-pre-wrap flex-1">{msg.message.content}</div>
+                       <span className="text-[10px] opacity-40 shrink-0 select-none pb-0.5">
+                         {format(new Date(msg.hora_data_mensagem), 'HH:mm')}
+                       </span>
+                    </div>
                   </div>
                 </div>
               );
