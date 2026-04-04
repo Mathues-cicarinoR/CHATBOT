@@ -8,8 +8,8 @@ export const ConnectionModal = ({ isOpen, onClose }: { isOpen: boolean; onClose:
 
   const fetchStatus = async () => {
     try {
-      const { data } = await supabase.functions.invoke('whatsapp-gateway-v1-proxy', { method: 'GET' });
-      if (data?.instance?.state === 'open') setStatus('connected');
+      const { data } = await supabase.functions.invoke('wa-gate/status');
+      if (data?.state === 'open') setStatus('connected');
       else if (status !== 'connecting') setStatus('disconnected');
     } catch (e) { 
       console.error(e);
@@ -20,10 +20,17 @@ export const ConnectionModal = ({ isOpen, onClose }: { isOpen: boolean; onClose:
   const getQR = async () => {
     setStatus('connecting');
     try {
-      await supabase.functions.invoke('whatsapp-gateway-v1-proxy', { method: 'POST', body: { action: 'init' } });
-      const { data } = await supabase.functions.invoke('whatsapp-gateway-v1-proxy', { method: 'GET' });
-      if (data?.base64) setQrCode(data.base64);
-      else if (data?.instance?.state === 'open') setStatus('connected');
+      // 1. Inicia/Cria a instância no Evolution
+      await supabase.functions.invoke('wa-gate/init');
+      // 2. Busca o QR Code da instância criada
+      const { data } = await supabase.functions.invoke('wa-gate/qr');
+      
+      if (data?.base64) {
+        setQrCode(data.base64);
+        setStatus('disconnected');
+      } else if (data?.instance?.state === 'open') {
+        setStatus('connected');
+      }
     } catch (e) { 
       console.error(e);
       setStatus('disconnected'); 
