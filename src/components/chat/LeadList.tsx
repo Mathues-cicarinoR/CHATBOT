@@ -37,6 +37,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
       .from('Leads')
       .select('*')
       .eq('is_active', true)
+      .not('last_message_at', 'is', null)
       .order('last_message_at', { ascending: false });
 
     if (error) {
@@ -49,6 +50,22 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
 
   useEffect(() => {
     fetchLeads();
+
+    // Inscrição Realtime para atualizações automáticas na lista (Sincronização)
+    const channel = supabase
+      .channel('leads-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'Leads' },
+        () => {
+          fetchLeads();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [refreshTrigger]);
 
   const handleCreateLead = async (e: React.FormEvent) => {
