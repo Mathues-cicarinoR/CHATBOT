@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, User, Plus, X, Check, Trash2, Loader2, QrCode, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Search, User, Plus, X, Trash2, Loader2, QrCode } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { cn } from '../../lib/utils';
 import { format } from 'date-fns';
@@ -37,12 +37,18 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
   const fetchLeads = async () => {
     setLoading(true);
     
-    // Check connection first
     try {
-      const { data: status } = await supabase.functions.invoke('wa-gate/status');
-      setConnectionStatus(status?.state === 'open' ? 'open' : 'disconnected');
+      const { data: statusResp, error: statusError } = await supabase.functions.invoke('wa-gate/status');
+      if (statusError || statusResp?.error) {
+        // Se houver erro na função (ex: secrets faltando), não marcamos como desconectado fatal
+        console.warn('Status check failed:', statusError || statusResp?.error);
+        setConnectionStatus('open'); // Fallback para mostrar a lista se houver erro de config
+      } else {
+        setConnectionStatus(statusResp?.state === 'open' ? 'open' : 'disconnected');
+      }
     } catch (e) {
-      setConnectionStatus('disconnected');
+      console.error('Error fetching connection status:', e);
+      setConnectionStatus('open'); // Fallback
     }
 
     const { data, error } = await supabase
@@ -62,28 +68,19 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
   useEffect(() => {
     fetchLeads();
 
-    // Inscrição Realtime para atualizações automáticas na lista (Sincronização)
     const channel = supabase
       .channel('sidebar-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'Leads' },
-        (payload) => {
-          console.log('Realtime Lead Update:', payload);
-          fetchLeads();
-        }
+        () => fetchLeads()
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'chat_messages' },
-        (payload) => {
-          console.log('Realtime Message Update:', payload);
-          fetchLeads();
-        }
+        () => fetchLeads()
       )
-      .subscribe((status) => {
-        console.log('Realtime Subscription Status:', status);
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
@@ -96,11 +93,9 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
 
     setIsCreating(true);
     try {
-      // Limpar o número e formatar como JID
       const cleanPhone = newLeadPhone.replace(/\D/g, '');
       const jid = cleanPhone.includes('@') ? cleanPhone : `${cleanPhone}@s.whatsapp.net`;
 
-      // Verificar se o lead já existe (mesmo inativo)
       const { data: existing } = await supabase
         .from('Leads')
         .select('*')
@@ -108,7 +103,6 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
         .maybeSingle();
 
       if (existing) {
-        // Reativar o lead
         const { data, error } = await supabase
           .from('Leads')
           .update({
@@ -123,7 +117,6 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
         await fetchLeads();
         onSelectLead(data?.[0] || existing);
       } else {
-        // Criar novo
         const { data, error } = await supabase
           .from('Leads')
           .insert([{
@@ -153,16 +146,12 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
 
   const handleDeleteLead = async (e: React.MouseEvent, lead: Lead) => {
     e.stopPropagation();
-    if (!confirm(`Tem certeza que deseja ocultar a conversa com ${lead.lead_nome || lead.lead_id}? Ela só voltará se você buscá-la novamente.`)) return;
+    if (!confirm(`Ocultar conversa com ${lead.lead_nome || lead.lead_id}?`)) return;
 
     try {
-      // Remoção otimista da UI
       setLeads(prev => prev.filter(l => l.id !== lead.id));
-      if (selectedLeadId === lead.lead_id) {
-        onSelectLead(null);
-      }
+      if (selectedLeadId === lead.lead_id) onSelectLead(null);
 
-      // Marcar como inativo no banco (Exclusão Lógica)
       const { error } = await supabase
         .from('Leads')
         .update({ is_active: false })
@@ -174,7 +163,6 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
       }
     } catch (err) {
       console.error('Erro ao arquivar lead:', err);
-      alert('Erro ao arquivar contato.');
     }
   };
 
@@ -188,10 +176,10 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
   });
 
   const statuses = [
-    { id: 'novo', label: 'Novo', color: 'bg-blue-500' },
-    { id: 'frio', label: 'Frio', color: 'bg-zinc-400' },
-    { id: 'quente', label: 'Quente', color: 'bg-orange-500' },
-    { id: 'venda', label: 'Venda', color: 'bg-green-500' },
+    { id: 'novo', label: 'Novo' },
+    { id: 'frio', label: 'Frio' },
+    { id: 'quente', label: 'Quente' },
+    { id: 'venda', label: 'Venda' },
   ];
 
   return (
@@ -215,12 +203,12 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
         </div>
 
         {isAddingLead && (
-          <form onSubmit={handleCreateLead} className="p-3 bg-primary/5 dark:bg-primary/10 rounded-2xl border border-primary/10 space-y-3 animate-in slide-in-from-top-2 duration-200">
+          <form onSubmit={handleCreateLead} className="p-3 bg-white/5 rounded-2xl border border-white/10 space-y-3 animate-in slide-in-from-top-2">
             <div className="space-y-2">
               <input 
                 type="text" 
                 placeholder="Nome do contato"
-                className="w-full px-3 py-1.5 bg-white dark:bg-zinc-900 border border-border rounded-lg text-xs outline-none focus:ring-1 focus:ring-primary/30"
+                className="w-full px-3 py-1.5 bg-[#202c33] border-none rounded-lg text-xs text-white outline-none"
                 value={newLeadName}
                 onChange={(e) => setNewLeadName(e.target.value)}
                 autoFocus
@@ -228,7 +216,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
               <input 
                 type="text" 
                 placeholder="WhatsApp (ex: 5511999999999)"
-                className="w-full px-3 py-1.5 bg-white dark:bg-zinc-900 border border-border rounded-lg text-xs outline-none focus:ring-1 focus:ring-primary/30"
+                className="w-full px-3 py-1.5 bg-[#202c33] border-none rounded-lg text-xs text-white outline-none"
                 value={newLeadPhone}
                 onChange={(e) => setNewLeadPhone(e.target.value)}
               />
@@ -236,9 +224,9 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
             <button 
               type="submit"
               disabled={isCreating}
-              className="w-full py-2 bg-primary text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-50"
+              className="w-full py-2 bg-wa-teal text-[#111b21] rounded-lg text-xs font-bold flex items-center justify-center gap-2"
             >
-              {isCreating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+              {isCreating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
               {isCreating ? 'Criando...' : 'Iniciar Conversa'}
             </button>
           </form>
@@ -248,8 +236,8 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8696a0] group-focus-within:text-wa-teal transition-colors" />
           <input 
             type="text" 
-            placeholder="Pesquisar ou começar uma nova conversa"
-            className="w-full pl-10 pr-4 py-2.5 bg-[#202c33] border-none rounded-xl text-sm text-[#e9edef] placeholder:text-[#8696a0] focus:ring-0 outline-none transition-all"
+            placeholder="Pesquisar..."
+            className="w-full pl-10 pr-4 py-2 bg-[#202c33] border-none rounded-xl text-sm text-[#e9edef] placeholder:text-[#8696a0] outline-none"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -260,9 +248,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
             onClick={() => setFilterStatus(null)}
             className={cn(
               "px-4 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap",
-              !filterStatus 
-                ? "bg-wa-teal/20 text-wa-teal" 
-                : "bg-[#202c33] text-[#8696a0] hover:bg-[#2a3942]"
+              !filterStatus ? "bg-wa-teal/20 text-wa-teal" : "bg-[#202c33] text-[#8696a0]"
             )}
           >
             Todos
@@ -273,9 +259,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
               onClick={() => setFilterStatus(status.id)}
               className={cn(
                 "px-4 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap",
-                filterStatus === status.id 
-                  ? "bg-wa-teal/20 text-wa-teal" 
-                  : "bg-[#202c33] text-[#8696a0] hover:bg-[#2a3942]"
+                filterStatus === status.id ? "bg-wa-teal/20 text-wa-teal" : "bg-[#202c33] text-[#8696a0]"
               )}
             >
               {status.label}
@@ -294,10 +278,10 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
           <div className="flex flex-col items-center justify-center p-8 text-center h-[200px] bg-[#202c33]/30 mx-4 rounded-3xl border border-[#222d34]">
             <QrCode className="w-10 h-10 text-wa-teal mb-4 opacity-50" />
             <p className="text-[#e9edef] font-bold text-sm mb-2">WhatsApp Desconectado</p>
-            <p className="text-[#8696a0] text-xs">Conecte seu celular para espelhar as mensagens.</p>
+            <p className="text-[#8696a0] text-xs">Conecte seu celular para espelhar mensagens.</p>
           </div>
         ) : filteredLeads.length === 0 ? (
-          <div className="p-10 text-center text-sm text-[#8696a0]">Nenhuma conversa encontrada.</div>
+          <div className="p-10 text-center text-sm text-[#8696a0]">Nenhuma conversa.</div>
         ) : (
           <div className="">
             {filteredLeads.map((lead) => (
@@ -305,60 +289,37 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
                 key={lead.id}
                 onClick={() => onSelectLead(lead)}
                 className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3 transition-all hover:bg-[#202c33] group border-b border-[#222d34]/50",
+                  "w-full flex items-center gap-3 px-4 py-3 hover:bg-[#202c33] group border-b border-[#222d34]/50",
                   selectedLeadId === lead.lead_id ? "bg-[#202c33]" : "bg-transparent"
                 )}
               >
-                {/* Avatar */}
                 <div className="relative shrink-0">
                   {lead.profile_pic ? (
-                    <img 
-                      src={lead.profile_pic} 
-                      alt={lead.lead_nome} 
-                      className="w-12 h-12 rounded-full object-cover border border-[#222d34]"
-                    />
+                    <img src={lead.profile_pic} alt="AV" className="w-12 h-12 rounded-full object-cover border border-[#222d34]" />
                   ) : (
-                    <div className="w-12 h-12 rounded-full bg-[#313d45] flex items-center justify-center text-[#8696a0] font-medium">
+                    <div className="w-12 h-12 rounded-full bg-[#313d45] flex items-center justify-center text-[#8696a0]">
                       <User className="w-6 h-6" />
                     </div>
                   )}
-                  {lead.status === 'venda' && (
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-[#111b21]" />
-                  )}
                 </div>
  
-                {/* Conteúdo */}
-                <div className="flex-1 text-left min-w-0 py-1">
+                <div className="flex-1 text-left min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <h3 className="font-medium text-[#e9edef] truncate">
-                      {lead.lead_nome || lead.lead_id.split('@')[0]}
-                    </h3>
-                    <span className={cn(
-                      "text-[12px]",
-                      lead.unread_count && lead.unread_count > 0 ? "text-wa-teal font-medium" : "text-[#8696a0]"
-                    )}>
+                    <h3 className="font-medium text-[#e9edef] truncate">{lead.lead_nome || lead.lead_id.split('@')[0]}</h3>
+                    <span className={cn("text-[12px]", lead.unread_count && lead.unread_count > 0 ? "text-wa-teal font-medium" : "text-[#8696a0]")}>
                       {lead.last_message_at ? format(new Date(lead.last_message_at), 'HH:mm', { locale: ptBR }) : ''}
                     </span>
                   </div>
-                  
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-[#8696a0] truncate pr-4">
-                      {lead.last_message_content || lead.lead_id}
-                    </p>
-                    
-                    <div className="flex items-center gap-2">
-                       {lead.unread_count && lead.unread_count > 0 ? (
-                         <div className="min-w-[20px] h-5 bg-wa-teal rounded-full flex items-center justify-center px-1.5">
-                           <span className="text-[11px] font-bold text-[#111b21]">{lead.unread_count}</span>
-                         </div>
-                       ) : null}
-                       <button 
-                         onClick={(e) => handleDeleteLead(e, lead)}
-                         className="opacity-0 group-hover:opacity-100 p-1 text-[#8696a0] hover:text-red-500 transition-all"
-                       >
-                         <Trash2 className="w-4 h-4" />
-                       </button>
-                    </div>
+                    <p className="text-sm text-[#8696a0] truncate pr-4">{lead.last_message_content || lead.lead_id}</p>
+                    {lead.unread_count && lead.unread_count > 0 && (
+                      <div className="min-w-[20px] h-5 bg-wa-teal rounded-full flex items-center justify-center px-1.5">
+                        <span className="text-[11px] font-bold text-[#111b21]">{lead.unread_count}</span>
+                      </div>
+                    )}
+                    <button onClick={(e) => handleDeleteLead(e, lead)} className="opacity-0 group-hover:opacity-100 p-1 text-[#8696a0] hover:text-red-500">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               </button>

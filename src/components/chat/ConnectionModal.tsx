@@ -1,16 +1,31 @@
 import { useState, useEffect } from 'react';
 import { X, QrCode, Loader2, CheckCircle2, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { cn } from '../../lib/utils';
 
 export const ConnectionModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
   const [status, setStatus] = useState<'loading' | 'disconnected' | 'connecting' | 'connected'>('loading');
   const [qrCode, setQrCode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchStatus = async () => {
     try {
-      const { data } = await supabase.functions.invoke('wa-gate/status');
-      if (data?.state === 'open') setStatus('connected');
-      else if (status !== 'connecting') setStatus('disconnected');
+      const { data, error: invokeError } = await supabase.functions.invoke('wa-gate/status');
+      
+      if (invokeError || data?.error) {
+        if (data?.error?.includes('Secrets') || data?.error?.includes('Configuração incompleta')) {
+          setError('Configuração pendente: Use "npx supabase secrets set..." ou configure no Painel das Edge Functions.');
+        }
+        setStatus('disconnected');
+        return;
+      }
+
+      if (data?.state === 'open') {
+        setStatus('connected');
+        setError(null);
+      } else if (status !== 'connecting') {
+        setStatus('disconnected');
+      }
     } catch (e) { 
       console.error(e);
       setStatus('disconnected'); 
@@ -19,20 +34,28 @@ export const ConnectionModal = ({ isOpen, onClose }: { isOpen: boolean; onClose:
 
   const getQR = async () => {
     setStatus('connecting');
+    setError(null);
     try {
-      // 1. Inicia/Cria a instância no Evolution
-      await supabase.functions.invoke('wa-gate/init');
-      // 2. Busca o QR Code da instância criada
-      const { data } = await supabase.functions.invoke('wa-gate/qr');
+      const { error: initError } = await supabase.functions.invoke('wa-gate/init');
+      if (initError) throw initError;
+
+      const { data, error: qrError } = await supabase.functions.invoke('wa-gate/qr');
       
+      if (qrError || data?.error) {
+        setError(data?.error || 'Erro ao gerar QR Code');
+        setStatus('disconnected');
+        return;
+      }
+
       if (data?.base64) {
         setQrCode(data.base64);
         setStatus('disconnected');
       } else if (data?.instance?.state === 'open') {
         setStatus('connected');
       }
-    } catch (e) { 
+    } catch (e: any) { 
       console.error(e);
+      setError(e.message || 'Erro na conexão com a Evolution API');
       setStatus('disconnected'); 
     }
   };
@@ -80,7 +103,12 @@ export const ConnectionModal = ({ isOpen, onClose }: { isOpen: boolean; onClose:
               <div className="w-20 h-20 bg-[#313d45] rounded-full flex items-center justify-center opacity-50">
                 <QrCode className="w-10 h-10 text-[#8696a0]" />
               </div>
-              <p className="text-[#8696a0] text-sm">Clique abaixo para gerar o código de pareamento.</p>
+              {error && (
+                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-xs">
+                  {error}
+                </div>
+              )}
+              <p className="text-[#8696a0] text-sm mb-4">Clique abaixo para gerar o código de pareamento.</p>
               <button 
                 onClick={getQR} 
                 disabled={status === 'connecting'}
