@@ -8,59 +8,75 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 async function processMessages(messages: any[]) {
     if (!messages || !messages.length) return;
     
+    console.log(`[V22] Processando lote de ${messages.length} mensagens.`);
     const CHUNK_SIZE = 50;
+    
     for (let i = 0; i < messages.length; i += CHUNK_SIZE) {
         const chunk = messages.slice(i, i + CHUNK_SIZE);
         const bulkData = [];
 
         for (const msg of chunk) {
             try {
-                const messageData = msg.message || msg; 
-                const key = msg.key || messageData.key;
+                // Normalização robusta para Evolution v2
+                const key = msg.key;
                 if (!key || !key.remoteJid) continue;
 
-                const remoteJid = key.remoteJid;
-                const actualMessage = messageData.message || messageData;
-                
-                let content = "";
-                if (typeof actualMessage === 'string' && actualMessage.trim().length > 0) content = actualMessage;
-                else if (actualMessage.conversation) content = actualMessage.conversation;
-                else if (actualMessage.extendedTextMessage) content = actualMessage.extendedTextMessage.text || actualMessage.extendedTextMessage.caption;
-                else if (actualMessage.imageMessage) content = actualMessage.imageMessage.caption || "[Imagem]";
-                else if (actualMessage.audioMessage) content = "[Áudio]";
-                else if (actualMessage.videoMessage) content = actualMessage.videoMessage.caption || "[Vídeo]";
-                else if (actualMessage.documentMessage) content = actualMessage.documentMessage.fileName || "[Documento]";
-                else if (actualMessage.stickerMessage) content = "[Figurinha]";
-                else if (actualMessage.locationMessage) content = "[Localização]";
-                else if (actualMessage.contactMessage) content = "[Contato]";
+                // Tenta encontrar o conteúdo da mensagem em múltiplos níveis (Evolution v2 nested structure)
+                const mBase = msg.message || {};
+                const mContent = mBase.message || mBase; // lida com dupla profundidade do Histórico
 
-                if (!content || content === "[Mensagem]") continue;
+                let content = "";
+                
+                // 1. Texto simples ou conversão
+                if (typeof mContent === 'string' && mContent.length > 0) content = mContent;
+                else if (mContent.conversation) content = mContent.conversation;
+                else if (mContent.extendedTextMessage) content = mContent.extendedTextMessage.text || mContent.extendedTextMessage.caption;
+                
+                // 2. Mídias (Fotos, Vídeos, Documentos)
+                else if (mContent.imageMessage) content = mContent.imageMessage.caption || "[Imagem]";
+                else if (mContent.videoMessage) content = mContent.videoMessage.caption || "[Vídeo]";
+                else if (mContent.documentMessage) content = mContent.documentMessage.fileName || mContent.documentMessage.caption || "[Documento]";
+                else if (mContent.documentWithCaptionMessage) content = mContent.documentWithCaptionMessage.message?.documentMessage?.fileName || "[Documento]";
+                
+                // 3. Especiais (Áudio, Sticker, Localização)
+                else if (mContent.audioMessage) content = "[Áudio]";
+                else if (mContent.stickerMessage) content = "[Figurinha]";
+                else if (mContent.locationMessage) content = "[Localização]";
+                else if (mContent.contactMessage) content = "[Contato]"; e
+                else if (mContent.protocolMessage) continue; // Ignorar mensagens de sistema/deletadas
+
+                // Fallback: Se não encontrou nada mas existe um objeto de mensagem, marca como mídia genérica
+                if (!content && Object.keys(mContent).length > 0) content = "[Arquivo/Mídia]";
+
+                // Se ainda estiver vazio (ex: mensagem de sistema pura), ignora para evitar Ghosts
+                if (!content || content.trim() === "") continue;
 
                 const timestamp = msg.messageTimestamp 
                     ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() 
                     : new Date().toISOString();
 
                 bulkData.push({
-                    remote_jid: remoteJid,
-                    push_name: msg.pushName || remoteJid.split("@")[0],
+                    remote_jid: key.remoteJid,
+                    push_name: msg.pushName || key.remoteJid.split("@")[0],
                     content: String(content).slice(0, 5000),
-                    msg_id: key.id || `${remoteJid}_${timestamp}`,
+                    msg_id: key.id || `${key.remoteJid}_${timestamp}`,
                     is_from_me: !!key.fromMe,
                     timestamp: timestamp,
                     is_history: !!msg.messageTimestamp
                 });
             } catch (e) {
-                console.error(`[V21] Loop Error:`, e);
+                console.error(`[V22] Erro no Loop:`, e);
             }
         }
 
         if (bulkData.length) {
-            // Chamada Turbo Bulk RPC (Processar lista inteira em uma transação)
             const { error: bulkError } = await supabase.rpc('upsert_messages_bulk_v21', {
                 p_messages: bulkData
             });
-            if (bulkError) console.error(`[V21] Bulk Error:`, bulkError);
-            else console.log(`[V21] Salvo lote de ${bulkData.length} mensagens.`);
+            if (bulkError) console.error(`[V22] Erro no Banco:`, bulkError);
+            else console.log(`[V22] Sucesso: Salvo lote de ${bulkData.length} mensagens.`);
+        } else {
+            console.log(`[V22] Lote ignorado (apenas mensagens de sistema ou vazias).`);
         }
     }
 }
@@ -70,13 +86,15 @@ Deno.serve(async (req) => {
         const payload = await req.json();
         const { event, data } = payload;
         
+        // n8n Pass-through
         fetch("https://chatbot-n8n.pde4mi.easypanel.host/webhook/ed6608a6-96ea-41df-863d-70588cab8739", { 
             method: "POST", 
             headers: { "Content-Type": "application/json" }, 
             body: JSON.stringify(payload) 
         }).catch(() => {});
 
-        if (event.includes("messages")) {
+        if (event && event.includes("messages")) {
+            // Em MESSAGES_SET, data.messages é o array. Em UPSERT, data é o objeto/array.
             const list = Array.isArray(data) ? data : (data?.messages || [data]);
             await processMessages(list);
         }
