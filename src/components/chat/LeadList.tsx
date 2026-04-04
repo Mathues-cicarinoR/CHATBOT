@@ -12,6 +12,8 @@ export interface Lead {
   created_at: string;
   last_message_at: string;
   status: string;
+  is_active: boolean;
+  profile_pic?: string;
 }
 
 interface LeadListProps {
@@ -34,6 +36,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
     const { data, error } = await supabase
       .from('Leads')
       .select('*')
+      .eq('is_active', true)
       .order('last_message_at', { ascending: false });
 
     if (error) {
@@ -58,28 +61,52 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
       const cleanPhone = newLeadPhone.replace(/\D/g, '');
       const jid = cleanPhone.includes('@') ? cleanPhone : `${cleanPhone}@s.whatsapp.net`;
 
-      const { data, error } = await supabase
+      // Verificar se o lead já existe (mesmo inativo)
+      const { data: existing } = await supabase
         .from('Leads')
-        .insert([{
-          lead_nome: newLeadName,
-          lead_id: jid,
-          status: 'novo',
-          last_message_at: new Date().toISOString()
-        }])
-        .select();
+        .select('*')
+        .eq('lead_id', jid)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (existing) {
+        // Reativar o lead
+        const { data, error } = await supabase
+          .from('Leads')
+          .update({
+            lead_nome: newLeadName,
+            is_active: true,
+            last_message_at: new Date().toISOString()
+          })
+          .eq('id', existing.id)
+          .select();
 
-      if (data && data[0]) {
+        if (error) throw error;
         await fetchLeads();
-        onSelectLead(data[0]);
-        setIsAddingLead(false);
-        setNewLeadName('');
-        setNewLeadPhone('');
+        onSelectLead(data?.[0] || existing);
+      } else {
+        // Criar novo
+        const { data, error } = await supabase
+          .from('Leads')
+          .insert([{
+            lead_nome: newLeadName,
+            lead_id: jid,
+            status: 'novo',
+            last_message_at: new Date().toISOString(),
+            is_active: true
+          }])
+          .select();
+
+        if (error) throw error;
+        await fetchLeads();
+        if (data?.[0]) onSelectLead(data[0]);
       }
+
+      setIsAddingLead(false);
+      setNewLeadName('');
+      setNewLeadPhone('');
     } catch (err) {
-      console.error('Erro ao criar lead:', err);
-      alert('Erro ao criar novo contato. Verifique se o número já existe.');
+      console.error('Erro ao criar/reativar lead:', err);
+      alert('Erro ao processar contato.');
     } finally {
       setIsCreating(false);
     }
@@ -87,7 +114,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
 
   const handleDeleteLead = async (e: React.MouseEvent, lead: Lead) => {
     e.stopPropagation();
-    if (!confirm(`Tem certeza que deseja excluir a conversa com ${lead.lead_nome || lead.lead_id}? Isso apagará todo o histórico.`)) return;
+    if (!confirm(`Tem certeza que deseja ocultar a conversa com ${lead.lead_nome || lead.lead_id}? Ela só voltará se você buscá-la novamente.`)) return;
 
     try {
       // Remoção otimista da UI
@@ -96,26 +123,19 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
         onSelectLead(null);
       }
 
-      // Deletar da tabela Leads usando o ID numérico
-      const { error: leadError } = await supabase
+      // Marcar como inativo no banco (Exclusão Lógica)
+      const { error } = await supabase
         .from('Leads')
-        .delete()
+        .update({ is_active: false })
         .eq('id', lead.id);
 
-      if (leadError) {
-        // Reverter se der erro
+      if (error) {
         await fetchLeads();
-        throw leadError;
+        throw error;
       }
-
-      // Deletar histórico de mensagens usando o lead_id (session_id)
-      await supabase
-        .from('n8n_chat_histories')
-        .delete()
-        .eq('session_id', lead.lead_id);
     } catch (err) {
-      console.error('Erro ao deletar lead:', err);
-      alert('Erro ao excluir contato.');
+      console.error('Erro ao arquivar lead:', err);
+      alert('Erro ao arquivar contato.');
     }
   };
 
