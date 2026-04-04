@@ -14,6 +14,8 @@ export interface Lead {
   status: string;
   is_active: boolean;
   profile_pic?: string;
+  last_message_content?: string;
+  unread_count?: number;
 }
 
 interface LeadListProps {
@@ -277,54 +279,69 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
 
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {loading ? (
-          <div className="p-10 text-center text-sm text-zinc-400">Carregando contatos...</div>
+          <div className="flex flex-col items-center justify-center p-10 space-y-4">
+            <Loader2 className="w-8 h-8 text-wa-teal animate-spin" />
+            <p className="text-sm text-wa-text-muted">Carregando contatos...</p>
+          </div>
         ) : filteredLeads.length === 0 ? (
-          <div className="p-10 text-center text-sm text-zinc-400">Nenhum lead encontrado.</div>
+          <div className="p-10 text-center text-sm text-wa-text-muted">Nenhum lead encontrado.</div>
         ) : (
-          <div className="p-2 space-y-1">
+          <div className="divide-y divide-wa-border">
             {filteredLeads.map((lead) => (
               <button
                 key={lead.id}
                 onClick={() => onSelectLead(lead)}
                 className={cn(
-                  "w-full flex items-center gap-3 p-3 rounded-xl transition-all group relative",
-                  selectedLeadId === lead.lead_id 
-                    ? "bg-primary/5 dark:bg-primary/10 border-l-[3px] border-primary" 
-                    : "hover:bg-zinc-50 dark:hover:bg-zinc-900 border-l-[3px] border-transparent"
+                  "w-full flex items-center gap-3 p-3 transition-all hover:bg-wa-sidebar-hover group",
+                  selectedLeadId === lead.lead_id ? "bg-wa-sidebar-hover" : "bg-transparent"
                 )}
               >
-                <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold shrink-0 shadow-sm border border-primary/10">
-                  {lead.lead_nome?.[0]?.toUpperCase() || 'L'}
+                {/* Avatar */}
+                <div className="relative shrink-0">
+                  {lead.profile_pic ? (
+                    <img 
+                      src={lead.profile_pic} 
+                      alt={lead.lead_nome} 
+                      className="w-12 h-12 rounded-full object-cover border border-wa-border"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-wa-border flex items-center justify-center text-wa-text-muted font-medium border border-wa-border">
+                      <User className="w-6 h-6" />
+                    </div>
+                  )}
+                  {lead.status === 'venda' && (
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-wa-sidebar" />
+                  )}
                 </div>
-                <div className="flex-1 text-left min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <p className="font-semibold text-sm truncate dark:text-zinc-100">{lead.lead_nome || 'Lead s/ nome'}</p>
-                    <p className="text-[10px] text-zinc-400 shrink-0">
+
+                {/* Conteúdo */}
+                <div className="flex-1 text-left min-w-0 border-b border-wa-border pb-3 group-last:border-none">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="font-medium text-wa-text truncate">
+                      {lead.lead_nome || lead.lead_id.split('@')[0]}
+                    </h3>
+                    <span className="text-[11px] text-wa-text-muted">
                       {lead.last_message_at ? format(new Date(lead.last_message_at), 'HH:mm', { locale: ptBR }) : ''}
-                    </p>
+                    </span>
                   </div>
+                  
                   <div className="flex items-center justify-between">
-                    <p className="text-xs text-zinc-500 truncate group-hover:text-zinc-600 dark:group-hover:text-zinc-400">
-                      {lead.lead_id}
+                    <p className="text-sm text-wa-text-muted truncate pr-4">
+                      {lead.last_message_content || lead.lead_id}
                     </p>
+                    
                     <div className="flex items-center gap-2">
-                      {lead.status && lead.status !== 'novo' && (
-                        <span className={cn(
-                          "text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider",
-                          lead.status === 'quente' ? "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400" :
-                          lead.status === 'venda' ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" :
-                          "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                        )}>
-                          {lead.status}
-                        </span>
-                      )}
-                      <button 
-                        onClick={(e) => handleDeleteLead(e, lead)}
-                        className="opacity-0 group-hover:opacity-100 p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                        title="Excluir conversa"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                       {lead.unread_count && lead.unread_count > 0 ? (
+                         <div className="min-w-[20px] h-5 bg-wa-teal rounded-full flex items-center justify-center px-1">
+                           <span className="text-[11px] font-bold text-[#111b21]">{lead.unread_count}</span>
+                         </div>
+                       ) : null}
+                       <button 
+                         onClick={(e) => handleDeleteLead(e, lead)}
+                         className="opacity-0 group-hover:opacity-100 p-1 text-wa-text-muted hover:text-red-500 transition-all"
+                       >
+                         <Trash2 className="w-4 h-4" />
+                       </button>
                     </div>
                   </div>
                 </div>

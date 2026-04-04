@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Users, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Users, Settings, LogOut, QrCode } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
+import { ConnectionModal } from '../chat/ConnectionModal';
 
 interface SidebarNavProps {
   isCollapsed?: boolean;
@@ -37,6 +38,8 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ isCollapsed = false }) =
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [width, isCollapsed]);
+
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
 
   const startResizing = () => {
     if (isCollapsed) return;
@@ -91,7 +94,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ isCollapsed = false }) =
             to="/contatos" 
             className={({ isActive }) => cn(
               "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group",
-              isActive ? "bg-primary text-white shadow-md shadow-primary/20" : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100",
+              isActive ? "bg-wa-teal text-[#111b21] shadow-lg shadow-wa-teal/20" : "text-wa-text-muted hover:bg-wa-sidebar-hover hover:text-wa-text",
               isCollapsed && "justify-center px-0"
             )}
             title="Contatos"
@@ -99,6 +102,20 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ isCollapsed = false }) =
             <Users className="w-5 h-5 flex-shrink-0" />
             {!isCollapsed && <span>Contatos</span>}
           </NavLink>
+
+          {/* Admin Connection Button */}
+          <button 
+            onClick={() => setIsConnectModalOpen(true)}
+            className={cn(
+              "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold transition-all group mt-6",
+              "bg-wa-teal/10 text-wa-teal hover:bg-wa-teal hover:text-[#111b21] border border-wa-teal/20",
+              isCollapsed && "justify-center px-0"
+            )}
+            title="Conectar WhatsApp"
+          >
+            <QrCode className="w-5 h-5 flex-shrink-0" />
+            {!isCollapsed && <span>Conectar WhatsApp</span>}
+          </button>
         </nav>
 
         <div className="pt-4 border-t border-border mt-4 space-y-1">
@@ -149,6 +166,10 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ isCollapsed = false }) =
           <div className="w-full h-full bg-transparent group-active:bg-primary/50" />
         </div>
       )}
+      <ConnectionModal 
+        isOpen={isConnectModalOpen} 
+        onClose={() => setIsConnectModalOpen(false)} 
+      />
     </div>
   );
 };

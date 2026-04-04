@@ -482,64 +482,81 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
         </button>
       </div>
 
-      <div ref={viewportRef} className="flex-1 overflow-y-auto p-4 space-y-8 custom-scrollbar bg-zinc-50/20 dark:bg-zinc-950">
+      <div 
+        ref={viewportRef} 
+        className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar"
+        style={{ 
+          backgroundImage: `url('https://w0.peakpx.com/wallpaper/580/630/HD-wallpaper-whatsapp-aesthetic-dark-green-thumbnail.jpg')`,
+          backgroundBlendMode: 'overlay',
+          backgroundColor: 'rgba(11, 20, 26, 0.95)'
+        }}
+      >
         {Object.entries(groupedMessages).map(([date, msgs]) => (
-          <div key={date} className="space-y-6">
-            <div className="flex justify-center sticky top-2 z-20">
-              <span className="px-3 py-1 bg-white dark:bg-zinc-800 rounded-full text-[10px] font-bold text-zinc-400 border border-border uppercase tracking-widest shadow-sm">{date}</span>
+          <div key={date} className="space-y-4">
+            <div className="flex justify-center sticky top-0 z-20 py-2">
+              <span className="px-3 py-1 bg-[#182229] rounded-lg text-[11px] font-medium text-wa-text-muted shadow-sm uppercase tracking-wide border border-wa-border/30">
+                {date}
+              </span>
             </div>
             {msgs.map((msg) => {
-              const isAI = msg.message.type === 'ai';
-              const fromCRM = msg.message.from_crm;
-              const isSentByMe = isAI || fromCRM;
+              const isSentByMe = msg.message.type === 'ai' || msg.message.from_crm;
 
               return (
-                <div key={msg.id} className={cn("flex flex-col max-w-[80%] group", isSentByMe ? "items-end ml-auto" : "items-start")}>
-                  <div className={cn("flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase tracking-wider", isSentByMe ? "text-primary/70" : "text-zinc-400")}>
-                    {fromCRM ? <UserCheck className="w-3 h-3 text-primary" /> : (isAI ? <Bot className="w-3 h-3" /> : <User className="w-3 h-3" />)}
-                    <span>{fromCRM ? `${msg.message.sender_name || 'Equipe'} (CRM)` : (isAI ? 'Assistente AI' : (lead?.lead_nome || 'Lead'))}</span>
-                  </div>
-                  <div className={cn("p-4 rounded-2xl text-sm shadow-sm max-w-full overflow-hidden", isSentByMe ? "bg-primary text-white rounded-tr-none" : "bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 border border-border rounded-tl-none")}>
+                <div key={msg.id} className={cn("flex w-full mb-2", isSentByMe ? "justify-end" : "justify-start")}>
+                  <div className={cn(
+                    "relative max-w-[65%] px-3 py-2 rounded-lg shadow-sm whitespace-pre-wrap text-[14.2px] leading-relaxed",
+                    isSentByMe 
+                      ? "bg-wa-bubble-out text-wa-text rounded-tr-none" 
+                      : "bg-wa-bubble-in text-wa-text rounded-tl-none"
+                  )}>
+                    {/* Tail */}
+                    <div className={cn(
+                      "absolute top-0 w-3 h-3",
+                      isSentByMe 
+                        ? "-right-2 bg-wa-bubble-out [clip-path:polygon(0_0,0_100%,100%_0)]" 
+                        : "-left-2 bg-wa-bubble-in [clip-path:polygon(0_0,100%_0,100%_100%)]"
+                    )} />
+
                     {msg.message.media_url && (
-                      <div className="mb-3 rounded-lg overflow-hidden bg-black/5 dark:bg-white/5 min-w-[200px]">
+                      <div className="mb-2 rounded-md overflow-hidden bg-black/20">
                         {msg.message.media_type === 'image' && (
                           <img
                             src={msg.message.media_url}
                             alt="Mídia"
-                            className="max-w-full h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                            className="max-w-full h-auto object-contain cursor-pointer"
                             onClick={() => window.open(msg.message.media_url, '_blank')}
                           />
                         )}
                         {msg.message.media_type === 'audio' && (
-                          <div className="p-2 flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-black/10 dark:bg-white/10 flex items-center justify-center shrink-0">
-                              <Volume2 className="w-4 h-4 text-primary" />
-                            </div>
-                            <audio controls className="h-8 flex-1">
-                              <source src={msg.message.media_url} />
-                            </audio>
-                          </div>
+                           <audio controls className="w-full h-8 scale-90 origin-left">
+                             <source src={msg.message.media_url} />
+                           </audio>
                         )}
-                        {(msg.message.media_type === 'document' || msg.message.media_type === 'application') && (
-                          <div className="p-3 flex items-center gap-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
-                            <div className="shrink-0 w-10 h-10 rounded-lg bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center">
-                              <FileText className="w-6 h-6 text-zinc-500" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-bold truncate">{msg.message.file_name || 'Documento'}</p>
-                              <a href={msg.message.media_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-primary hover:underline flex items-center gap-1 mt-0.5">
-                                <Download className="w-3 h-3" /> Baixar
-                              </a>
-                            </div>
+                        {msg.message.media_type === 'document' && (
+                          <div className="p-3 flex items-center gap-3 bg-[#111b21]/40">
+                             <FileText className="w-8 h-8 text-wa-text-muted" />
+                             <div className="flex-1 min-w-0">
+                               <p className="text-xs font-medium truncate">{msg.message.file_name || 'Documento'}</p>
+                               <a href={msg.message.media_url} target="_blank" className="text-[10px] text-wa-teal hover:underline">Baixar</a>
+                             </div>
                           </div>
                         )}
                       </div>
                     )}
-                    <div className="flex items-end gap-2">
-                      <div className="whitespace-pre-wrap flex-1">{msg.message.content}</div>
-                      <span className="text-[10px] opacity-40 shrink-0 select-none pb-0.5">
-                        {msg.hora_data_mensagem ? format(new Date(msg.hora_data_mensagem), 'HH:mm') : ''}
-                      </span>
+
+                    <div className="flex items-end justify-between gap-4">
+                      <span>{msg.message.content}</span>
+                      <div className="flex items-center gap-1 shrink-0 pb-0.5">
+                        <span className="text-[10px] text-wa-text-muted uppercase">
+                          {msg.hora_data_mensagem ? format(new Date(msg.hora_data_mensagem), 'HH:mm') : ''}
+                        </span>
+                        {isSentByMe && (
+                          <div className="flex text-wa-teal">
+                            <Check className="w-3.5 h-3.5 -mr-1.5" />
+                            <Check className="w-3.5 h-3.5" />
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -549,52 +566,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
         ))}
       </div>
 
-      <div className="p-4 bg-white dark:bg-zinc-950 flex flex-col gap-3 relative border-t border-border">
-        {isRecording && (
-          <div className="absolute inset-0 bg-white dark:bg-zinc-950 z-40 flex items-center justify-between px-6 border-t-2 border-primary">
-            <div className="flex items-center gap-4 text-red-500">
-              <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-              <span className="font-mono font-bold text-lg">{formatTime(recordingTime)}</span>
-              <span className="text-[10px] uppercase tracking-widest opacity-70">Gravando...</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={stopRecording}
-                className="p-3 bg-primary text-white rounded-full shadow-lg hover:scale-110 transition-transform"
-              >
-                <Send className="w-5 h-5" />
-              </button>
-              <button
-                type="button"
-                onClick={cancelRecording}
-                className="p-3 text-zinc-400 hover:text-red-500 transition-colors"
-                title="Cancelar"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-        )}
-
+      <div className="p-2.5 bg-wa-sidebar flex flex-col gap-2 relative">
         {showTemplates && (
-          <div className="flex flex-wrap gap-2 mb-1">
+          <div className="flex flex-wrap gap-2 mb-2 p-2 bg-wa-bg rounded-lg border border-wa-border">
             {templates.map((txt, idx) => (
-              <button key={idx} onClick={() => handleSendMessage(undefined, txt)} className="text-xs px-3 py-1.5 bg-primary/5 dark:bg-primary/20 hover:bg-primary/10 dark:hover:bg-primary/30 text-primary border border-primary/20 rounded-full transition-all">
-                {txt.length > 25 ? txt.substring(0, 25) + '...' : txt}
+              <button key={idx} onClick={() => handleSendMessage(undefined, txt)} className="text-[13px] px-3 py-1.5 bg-wa-sidebar-hover text-wa-teal rounded-full transition-all border border-wa-teal/20">
+                {txt.length > 30 ? txt.substring(0, 30) + '...' : txt}
               </button>
             ))}
           </div>
         )}
 
-        <form onSubmit={(e) => handleSendMessage(e)} className="relative group flex items-center gap-2">
-          <div className="flex items-center gap-1 shrink-0">
+        <form onSubmit={(e) => handleSendMessage(e)} className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading || isRecording} className="p-2 text-zinc-400 hover:text-primary transition-colors">
-              {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
+            <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 text-wa-text-muted hover:text-wa-text">
+               <Paperclip className="w-6 h-6" />
             </button>
-            <button type="button" onClick={() => setShowTemplates(!showTemplates)} className={cn("p-2 transition-colors", showTemplates ? "text-primary" : "text-zinc-400 hover:text-primary")}>
-              <Zap className="w-5 h-5" />
+            <button type="button" onClick={() => setShowTemplates(!showTemplates)} className={cn("p-2", showTemplates ? "text-wa-teal" : "text-wa-text-muted hover:text-wa-teal")}>
+               <Zap className="w-6 h-6" />
             </button>
           </div>
 
@@ -602,28 +592,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            placeholder={isUploading ? "Carregando..." : (isRecording ? "Pressione o microfone para parar..." : "Digite uma mensagem...")}
-            className="flex-1 px-4 py-2 bg-zinc-100 dark:bg-zinc-900 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none placeholder:text-zinc-400"
-            disabled={isSending || isUploading || isRecording}
+            placeholder="Digite uma mensagem"
+            className="flex-1 px-4 py-2.5 bg-wa-bg border-none rounded-lg text-sm text-wa-text focus:ring-0 outline-none placeholder:text-wa-text-muted"
+            disabled={isSending || isUploading}
           />
 
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={startRecording}
-              disabled={isSending || isUploading || isRecording}
-              className="p-2 text-zinc-400 hover:text-primary disabled:opacity-20 transition-colors"
-              title="Gravar áudio"
-            >
-              <Mic className="w-5 h-5" />
-            </button>
-            <button
-              type="submit"
-              disabled={(!newMessage.trim() && !isUploading) || isSending || isUploading || isRecording}
-              className="p-2 bg-primary text-white rounded-xl shadow-lg disabled:opacity-50 hover:bg-primary-hover transition-colors"
-            >
-              {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-            </button>
+          <div className="flex items-center">
+            {newMessage.trim() || isUploading ? (
+              <button type="submit" disabled={isSending} className="p-2 text-wa-teal">
+                {isSending ? <Loader2 className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />}
+              </button>
+            ) : (
+              <button type="button" onClick={startRecording} className="p-2 text-wa-text-muted">
+                <Mic className="w-6 h-6" />
+              </button>
+            )}
           </div>
         </form>
       </div>
