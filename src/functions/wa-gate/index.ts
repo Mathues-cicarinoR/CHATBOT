@@ -70,15 +70,23 @@ Deno.serve(async (req) => {
       data = { error: "Resposta inválida da Evolution API" };
     }
 
-    // Retornamos 200 para o front conseguir ler o objeto de erro/status sem quebrar
-    return new Response(JSON.stringify(data), { 
+    // Normalização: Garante que o frontend sempre veja 'state' no nível superior
+    // Independente se a Evolution retornou { instance: { state: 'open' } } ou { state: 'open' }
+    const normalizedData = {
+      ...data,
+      state: data?.instance?.state || data?.state || (res.status === 404 ? "disconnected" : "unknown")
+    };
+
+    console.log(`[WA-GATE] Response normalized:`, normalizedData.state);
+
+    return new Response(JSON.stringify(normalizedData), { 
       status: 200,
       headers: { ...cors, "Content-Type": "application/json" } 
     });
   } catch (e) {
     console.error("[WA-GATE] Erro Crítico:", e.message);
-    return new Response(JSON.stringify({ error: e.message }), { 
-      status: 200, // Evita disparar o catch global do frontend
+    return new Response(JSON.stringify({ error: e.message, state: "error" }), { 
+      status: 200,
       headers: { ...cors, "Content-Type": "application/json" } 
     });
   }
