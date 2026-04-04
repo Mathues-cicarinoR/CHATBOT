@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '../../lib/utils';
-import { User, Bot, Send, Loader2, MessageSquare, Trash2, UserCheck, ChevronLeft, Zap, Paperclip, FileText, Volume2, Download, Mic, X, Edit3, Check } from 'lucide-react';
+import { Send, Loader2, MessageSquare, Trash2, ChevronLeft, Zap, Paperclip, FileText, Edit3, Check, X, Mic } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { type Lead } from './LeadList';
 
@@ -38,8 +38,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
   const [isClearing, setIsClearing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingTime, setRecordingTime] = useState(0);
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(lead?.lead_nome || '');
@@ -47,9 +45,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const timerRef = useRef<any>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+
 
   const templates = [
     "Olá! Como posso te ajudar hoje? 😊",
@@ -323,55 +319,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
     }
   };
 
-  const startRecording = async () => {
-    try {
-      const mimeType = 'audio/webm;codecs=opus';
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) audioChunksRef.current.push(event.data);
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/ogg; codecs=opus' });
-        const file = new File([audioBlob], `voice-${Date.now()}.ogg`, { type: 'audio/ogg' });
-        const mockEvent = { target: { files: [file] } } as any;
-        await handleFileUpload(mockEvent);
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-      setRecordingTime(0);
-      timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
-    } catch (err) {
-      console.error('Falha no microfone:', err);
-      alert("Permita o acesso ao microfone no navegador.");
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-  };
-
-  const cancelRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.onstop = null;
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      if (timerRef.current) clearInterval(timerRef.current);
-      audioChunksRef.current = [];
-    }
-  };
 
   useEffect(() => {
     setEditedName(lead?.lead_nome || '');
@@ -397,12 +344,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
     } finally {
       setIsUpdatingName(false);
     }
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   if (!leadId) {
@@ -603,7 +544,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
                 {isSending ? <Loader2 className="w-6 h-6 animate-spin" /> : <Send className="w-6 h-6" />}
               </button>
             ) : (
-              <button type="button" onClick={startRecording} className="p-2 text-wa-text-muted">
+              <button type="button" className="p-2 text-wa-text-muted">
                 <Mic className="w-6 h-6" />
               </button>
             )}
