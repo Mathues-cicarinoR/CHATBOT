@@ -44,13 +44,33 @@ Deno.serve(async (req) => {
 
   try {
     console.log(`[WA-GATE] Action: ${action} | Method: ${method} | Target: ${target}`);
+    
+    let body = null;
+    if (action === "init") {
+      body = JSON.stringify({
+        instanceName: INSTANCE,
+        token: EVO_KEY, // Algumas versões da Evolution pedem o token aqui
+        qrcode: true,
+        syncFullHistory: true, // Ativa a sincronização de conversas antigas
+        webhook: `https://lvgdsbybyeqjsllrhvtc.supabase.co/functions/v1/evo-handler`,
+        events: [
+          "MESSAGES_UPSERT",
+          "MESSAGES_UPDATE",
+          "MESSAGES_DELETE",
+          "SEND_MESSAGE",
+          "CONTACTS_UPSERT",
+          "CONNECTION_UPDATE"
+        ]
+      });
+    }
+
     const res = await fetch(target, {
       method,
       headers: { 
         "apikey": EVO_KEY, 
         "Content-Type": "application/json" 
       },
-      body: method === "POST" ? JSON.stringify({ instanceName: INSTANCE, qrcode: true }) : null
+      body
     });
     
     // Se a instância não existe (404), tratamos como desconectado em vez de erro
