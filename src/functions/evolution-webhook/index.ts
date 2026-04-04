@@ -6,210 +6,150 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-Deno.serve(async (req) => {
-  const { method } = req;
+const findBase64 = (obj: any): string | null => {
+    if (!obj || typeof obj !== 'object') return null;
+    if (obj.base64 && typeof obj.base64 === 'string') return obj.base64;
+    for (const key in obj) {
+        const result = findBase64(obj[key]);
+        if (result) return result;
+    }
+    return null;
+};
 
-  if (method === "OPTIONS") {
-    return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
-  }
+// Processamento em Lote de Mensagens (V6 - Focado em ativos)
+async function processBulkMessages(messages: any[]) {
+    if (!messages.length) return;
+    const histories = [];
+    const leadUpdates = new Map();
 
-  const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET");
-  if (WEBHOOK_SECRET && req.headers.get("apikey") !== WEBHOOK_SECRET) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+    for (const msg of messages) {
+        const { key, message: messageData, pushName } = msg;
+        if (!key || !messageData) continue;
+        const remoteJid = key.remoteJid;
+        let content = "";
+        if (messageData.conversation) content = messageData.conversation;
+        else if (messageData.extendedTextMessage) content = messageData.extendedTextMessage.text;
+        else if (messageData.imageMessage) content = messageData.imageMessage.caption || "[Imagem]";
+        else if (messageData.audioMessage) content = "[Áudio]";
+        else if (messageData.videoMessage) content = messageData.videoMessage.caption || "[Vídeo]";
+        else if (messageData.documentMessage) content = messageData.documentMessage.fileName || "[Documento]";
+        else if (messageData.documentWithCaptionMessage) content = messageData.documentWithCaptionMessage.message.documentMessage.caption || "[Documento]";
 
-  try {
-    const payload = await req.json();
-    console.log("Webhook received:", JSON.stringify(payload, null, 2));
+        histories.push({
+            session_id: remoteJid,
+            message: { type: key.fromMe ? "ai" : "human", content: content },
+            hora_data_mensagem: new Date().toISOString()
+        });
 
-    // 1. Encaminhar para o n8n
-    const n8nUrl = "https://chatbot-n8n.pde4mi.easypanel.host/webhook/ed6608a6-96ea-41df-863d-70588cab8739";
-    fetch(n8nUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-    }).catch(err => console.error("Error forwarding to n8n:", err));
-
-    const { event, data } = payload;
-
-    // 2. Processar Sincronização de Contatos
-    if (event === "contacts.upsert" || event === "CONTACTS_UPSERT") {
-        const contacts = Array.isArray(data) ? data : [data];
-        for (const contact of contacts) {
-            const jid = contact.remoteJid || contact.id;
-            if (!jid) continue;
-
-            const { data: existing } = await supabase
-                .from("Leads")
-                .select("id, is_active")
-                .eq("lead_id", jid)
-                .maybeSingle();
-
-            if (existing) {
-                // Se o lead já existe, apenas atualizamos o nome e foto de perfil se disponíveis
-                await supabase.from("Leads").update({
-                    lead_nome: contact.pushName || contact.name || undefined,
-                    profile_pic: contact.profilePicUrl || undefined
-                }).eq("id", existing.id);
-            } else {
-                // Criação de novo lead vindo da sincronização
-                await supabase.from("Leads").insert([{
-                    lead_id: jid,
-                    lead_nome: contact.pushName || contact.name || jid.split("@")[0],
-                    profile_pic: contact.profilePicUrl || null,
-                    status: "novo",
-                    is_active: true
-                }]);
-            }
-        }
-        return new Response(JSON.stringify({ status: "contacts_processed" }), { headers: { "Content-Type": "application/json" } });
+        // SOMENTE mensagens atualizam o last_message_at
+        leadUpdates.set(remoteJid, {
+            lead_id: remoteJid,
+            lead_nome: pushName || remoteJid.split("@")[0],
+            last_message_at: new Date().toISOString(),
+            is_active: true
+        });
     }
 
-    // 3. Processar Mensagens (MESSAGES_UPSERT)
-    if (event !== "messages.upsert") {
-      return new Response(JSON.stringify({ status: "ignored_event", event }), { headers: { "Content-Type": "application/json" } });
-    }
+    if (histories.length) await supabase.from("n8n_chat_histories").insert(histories);
+    const leadsToUpsert = Array.from(leadUpdates.values());
+    if (leadsToUpsert.length) await supabase.from("Leads").upsert(leadsToUpsert, { onConflict: 'lead_id', ignoreDuplicates: false });
+}
 
-    const messageData = data.message;
-    if (!messageData) return new Response("No message data", { status: 400 });
+// Processa um único contato (SEM last_message_at)
+async function processContact(contact: any) {
+    const jid = contact.remoteJid || contact.id;
+    if (!jid) return;
+    // IMPORTANTE: Não definimos last_message_at aqui para não "poluir" a lista com quem não tem conversa
+    await supabase.from("Leads").upsert({
+        lead_id: jid,
+        lead_nome: contact.pushName || contact.name || jid.split("@")[0],
+        profile_pic: contact.profilePicUrl || null,
+        is_active: true
+    }, { onConflict: 'lead_id' });
+}
 
-    const key = data.key;
+async function processSingleMessage(msgPayload: any, rootPayload: any = {}) {
+    const { key, message: messageData, pushName } = msgPayload;
+    if (!key || !messageData) return;
     const remoteJid = key.remoteJid;
+    const { data: lead } = await supabase.from("Leads").select("id, is_active").eq("lead_id", remoteJid).maybeSingle();
+    if (lead && lead.is_active === false) return;
 
-    // Verificar se o Lead existe e se está ativo
-    const { data: lead, error: leadError } = await supabase
-      .from("Leads")
-      .select("id, is_active")
-      .eq("lead_id", remoteJid)
-      .maybeSingle();
-
-    if (leadError) console.error("Error fetching lead:", leadError);
-
-    // Se o lead estiver marcado como INATIVO (Excluido no CRM), ignoramos a mensagem
-    if (lead && lead.is_active === false) {
-        console.log(`Lead ${remoteJid} is inactive (archived). Skipping message.`);
-        return new Response("Inactive lead, ignoring", { status: 200 });
-    }
-
-    // Se for do bot (fromMe), processamos apenas para histórico, mas o CRM já insere. 
-    // Para evitar duplicidade de mensagens "ai" enviadas pelo CRM:
-    if (key.fromMe && messageData.extendedTextMessage?.text?.includes("Assistente AI")) {
-        return new Response("Duplicate AI message from CRM, ignoring", { status: 200 });
-    }
-
-    // Extrair conteúdo e mídias
     let content = "";
     let mediaUrl = null;
     let mediaType = null;
     let fileName = null;
     let mimetype = null;
 
-    if (messageData.conversation) {
-      content = messageData.conversation;
-    } else if (messageData.extendedTextMessage) {
-      content = messageData.extendedTextMessage.text;
-    } else if (messageData.imageMessage) {
-      content = messageData.imageMessage.caption || "";
-      mediaType = "image";
-      mimetype = messageData.imageMessage.mimetype;
-    } else if (messageData.audioMessage) {
-      mediaType = "audio";
-      mimetype = messageData.audioMessage.mimetype;
-    } else if (messageData.videoMessage) {
-      content = messageData.videoMessage.caption || "";
-      mediaType = "video";
-      mimetype = messageData.videoMessage.mimetype;
-    } else if (messageData.documentWithCaptionMessage) {
+    if (messageData.conversation) content = messageData.conversation;
+    else if (messageData.extendedTextMessage) content = messageData.extendedTextMessage.text;
+    else if (messageData.imageMessage) { content = messageData.imageMessage.caption || ""; mediaType = "image"; mimetype = messageData.imageMessage.mimetype; }
+    else if (messageData.audioMessage) { mediaType = "audio"; mimetype = messageData.audioMessage.mimetype; }
+    else if (messageData.videoMessage) { content = messageData.videoMessage.caption || ""; mediaType = "video"; mimetype = messageData.videoMessage.mimetype; }
+    else if (messageData.documentMessage) { mediaType = "document"; fileName = messageData.documentMessage.fileName; mimetype = messageData.documentMessage.mimetype; }
+    else if (messageData.documentWithCaptionMessage) { 
         const doc = messageData.documentWithCaptionMessage.message.documentMessage;
-        content = doc.caption || "";
-        mediaType = "document";
-        fileName = doc.fileName;
-        mimetype = doc.mimetype;
-    } else if (messageData.documentMessage) {
-        mediaType = "document";
-        fileName = messageData.documentMessage.fileName;
-        mimetype = messageData.documentMessage.mimetype;
+        content = doc.caption || ""; mediaType = "document"; fileName = doc.fileName; mimetype = doc.mimetype; 
     }
 
-    // Upsert Lead para garantir que ele exista e atualizar timestamp
-    if (lead) {
-      await supabase
-        .from("Leads")
-        .update({ last_message_at: new Date().toISOString() })
-        .eq("id", lead.id);
-    } else {
-      await supabase.from("Leads").insert([{
-          lead_id: remoteJid,
-          lead_nome: data.pushName || remoteJid.split("@")[0],
-          status: "novo",
-          last_message_at: new Date().toISOString(),
-          is_active: true
-      }]);
-    }
+    await supabase.from("Leads").upsert({
+        lead_id: remoteJid,
+        lead_nome: pushName || remoteJid.split("@")[0],
+        last_message_at: new Date().toISOString(),
+        is_active: true
+    }, { onConflict: 'lead_id' });
 
-    // Função auxiliar para encontrar base64 em qualquer lugar do objeto
-    const findBase64 = (obj: any): string | null => {
-        if (!obj || typeof obj !== 'object') return null;
-        if (obj.base64 && typeof obj.base64 === 'string') return obj.base64;
-        for (const key in obj) {
-            const result = findBase64(obj[key]);
-            if (result) return result;
-        }
-        return null;
-    };
-
-    // Tentar encontrar o Base64 (na raiz, no data, no payload ou aninhado)
-    let base64Data = payload.base64 || data.base64 || findBase64(data.message);
-    
+    let base64Data = rootPayload.base64 || msgPayload.base64 || findBase64(messageData);
     if (mediaType && base64Data) {
         try {
-            // Se vier com prefixo "data:image/png;base64,", removemos
-            if (base64Data.includes(',')) {
-                base64Data = base64Data.split(',')[1];
-            }
-
+            if (base64Data.includes(',')) base64Data = base64Data.split(',')[1];
             const buffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
             const ext = mimetype?.split("/")[1]?.split(";")[0] || "file";
             const path = `${remoteJid}/${Date.now()}.${ext}`;
-            
-            const { error: uploadError } = await supabase.storage
-                .from("chat-media")
-                .upload(path, buffer, { contentType: mimetype, upsert: true });
-            
+            const { error: uploadError } = await supabase.storage.from("chat-media").upload(path, buffer, { contentType: mimetype, upsert: true });
             if (!uploadError) {
-                const { data: { publicUrl } } = supabase.storage
-                    .from("chat-media")
-                    .getPublicUrl(path);
+                const { data: { publicUrl } } = supabase.storage.from("chat-media").getPublicUrl(path);
                 mediaUrl = publicUrl;
-                console.log("Media uploaded successfully:", mediaUrl);
-            } else {
-                console.error("Storage upload error:", uploadError);
             }
-        } catch (mediaErr) {
-            console.error("Error decoding/uploading base64:", mediaErr);
-        }
+        } catch (e) { console.error("Media error:", e); }
     }
 
-    // Inserir no histórico de chat
-    const { error: historyError } = await supabase.from("n8n_chat_histories").insert([
-      {
+    await supabase.from("n8n_chat_histories").insert([{
         session_id: remoteJid,
-        message: {
-          type: key.fromMe ? "ai" : "human",
-          content: content,
-          media_url: mediaUrl,
-          media_type: mediaType,
-          file_name: fileName,
-        },
-        hora_data_mensagem: new Date().toISOString(),
-      },
-    ]);
+        message: { type: key.fromMe ? "ai" : "human", content: content, media_url: mediaUrl, media_type: mediaType, file_name: fileName },
+        hora_data_mensagem: new Date().toISOString()
+    }]);
+}
 
-    if (historyError) throw historyError;
+Deno.serve(async (req) => {
+    const { method } = req;
+    if (method === "OPTIONS") return new Response("ok", { headers: { "Access-Control-Allow-Origin": "*" } });
+    const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET");
+    if (WEBHOOK_SECRET && req.headers.get("apikey") !== WEBHOOK_SECRET) return new Response("Unauthorized", { status: 401 });
 
-    return new Response(JSON.stringify({ status: "success" }), { headers: { "Content-Type": "application/json" } });
-  } catch (error) {
-    console.error("Error processing webhook:", error);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { "Content-Type": "application/json" } });
-  }
+    try {
+        const payload = await req.json();
+        const { event, data } = payload;
+        const n8nUrl = "https://chatbot-n8n.pde4mi.easypanel.host/webhook/ed6608a6-96ea-41df-863d-70588cab8739";
+        fetch(n8nUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).catch(() => {});
+
+        if (event.includes("contacts")) {
+            const contacts = Array.isArray(data) ? data : [data];
+            for (const c of contacts) await processContact(c);
+        } else if (event === "messages.upsert" || event === "MESSAGES_UPSERT") {
+            await processSingleMessage(data, payload);
+        } else if (event === "messages.set" || event === "MESSAGES_SET") {
+            const messages = Array.isArray(data) ? data : [data];
+            await processBulkMessages(messages);
+        } else if (event.includes("chats.set")) {
+            const chats = Array.isArray(data) ? data : [data];
+            // CHATS_SET apenas ativa o lead, NÃO define last_message_at
+            const updates = chats.map(c => ({ lead_id: c.id, is_active: true }));
+            await supabase.from("Leads").upsert(updates, { onConflict: 'lead_id' });
+        }
+        return new Response(JSON.stringify({ status: "processed" }), { headers: { "Content-Type": "application/json" } });
+    } catch (error) {
+        console.error("Error:", error);
+        return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    }
 });
