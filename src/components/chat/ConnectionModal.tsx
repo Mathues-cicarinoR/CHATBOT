@@ -83,9 +83,22 @@ export const ConnectionModal = ({ isOpen, onClose }: { isOpen: boolean; onClose:
               <p className="text-[#8696a0] text-sm">Clique abaixo para gerar o código de pareamento.</p>
               <button 
                 onClick={getQR} 
-                className="w-full py-3 bg-[#00a884] text-[#111b21] rounded-xl font-bold shadow-lg hover:brightness-110 transition-all font-bold"
+                disabled={status === 'connecting'}
+                className={cn(
+                  "w-full py-4 text-[#111b21] rounded-2xl font-bold shadow-lg transition-all flex items-center justify-center gap-2",
+                  status === 'connecting' 
+                    ? "bg-[#00a884]/50 cursor-not-allowed" 
+                    : "bg-[#00a884] hover:brightness-110 cursor-pointer active:scale-[0.98]"
+                )}
               >
-                Gerar QR Code
+                {status === 'connecting' ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Conectando...</span>
+                  </>
+                ) : (
+                  <span>Gerar QR Code</span>
+                )}
               </button>
             </div>
           )}

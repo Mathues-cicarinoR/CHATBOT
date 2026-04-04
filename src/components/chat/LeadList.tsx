@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, User, Plus, X, Check, Trash2, Loader2 } from 'lucide-react';
+import { Search, User, Plus, X, Check, Trash2, Loader2, QrCode, CheckCircle2, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { cn } from '../../lib/utils';
 import { format } from 'date-fns';
@@ -32,9 +32,19 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
   const [newLeadName, setNewLeadName] = useState('');
   const [newLeadPhone, setNewLeadPhone] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'open' | 'disconnected' | 'loading'>('loading');
 
   const fetchLeads = async () => {
     setLoading(true);
+    
+    // Check connection first
+    try {
+      const { data: status } = await supabase.functions.invoke('wa-gate/status');
+      setConnectionStatus(status?.state === 'open' ? 'open' : 'disconnected');
+    } catch (e) {
+      setConnectionStatus('disconnected');
+    }
+
     const { data, error } = await supabase
       .from('active_leads_view')
       .select('*')
@@ -185,25 +195,22 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
   ];
 
   return (
-    <div className="h-full w-[300px] shrink-0 flex flex-col bg-white dark:bg-zinc-950 border-r border-border transition-colors duration-200">
-      <div className="p-4 border-b border-border space-y-4">
-        <div className="flex items-center justify-between px-1">
-          <h1 className="text-xl font-bold tracking-tight">Mensagens</h1>
-          <div className="flex items-center gap-2">
+    <div className="h-full w-[320px] shrink-0 flex flex-col bg-[#111b21] border-r border-[#222d34] transition-all">
+      <div className="p-4 space-y-4">
+        <div className="flex items-center justify-between px-2">
+          <h1 className="text-xl font-bold tracking-tight text-[#e9edef]">Mensagens</h1>
+          <div className="flex items-center gap-3">
             <button 
               onClick={() => setIsAddingLead(!isAddingLead)}
               className={cn(
                 "p-2 rounded-full transition-all",
                 isAddingLead 
-                  ? "bg-red-50 text-red-500 hover:bg-red-100" 
-                  : "bg-primary/10 text-primary hover:bg-primary/20"
+                  ? "bg-red-500/10 text-red-500 hover:bg-red-500/20" 
+                  : "bg-wa-teal/10 text-wa-teal hover:bg-wa-teal/20"
               )}
             >
-              {isAddingLead ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+              {isAddingLead ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
             </button>
-            <div className="p-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 cursor-pointer hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors">
-               <User className="w-4 h-4" />
-            </div>
           </div>
         </div>
 
@@ -237,25 +244,25 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
           </form>
         )}
 
-        <div className="relative group">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 group-focus-within:text-primary transition-colors" />
+        <div className="relative group mx-2">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8696a0] group-focus-within:text-wa-teal transition-colors" />
           <input 
             type="text" 
-            placeholder="Buscar leads..."
-            className="w-full pl-10 pr-4 py-2 bg-zinc-100/50 dark:bg-zinc-900 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+            placeholder="Pesquisar ou começar uma nova conversa"
+            className="w-full pl-10 pr-4 py-2.5 bg-[#202c33] border-none rounded-xl text-sm text-[#e9edef] placeholder:text-[#8696a0] focus:ring-0 outline-none transition-all"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar shrink-0">
+        <div className="flex gap-2 overflow-x-auto pb-1 px-2 custom-scrollbar shrink-0">
           <button 
             onClick={() => setFilterStatus(null)}
             className={cn(
-              "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all whitespace-nowrap",
+              "px-4 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap",
               !filterStatus 
-                ? "bg-zinc-900 text-white border-zinc-900 dark:bg-white dark:text-zinc-900 dark:border-white" 
-                : "bg-transparent text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400"
+                ? "bg-wa-teal/20 text-wa-teal" 
+                : "bg-[#202c33] text-[#8696a0] hover:bg-[#2a3942]"
             )}
           >
             Todos
@@ -265,10 +272,10 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
               key={status.id}
               onClick={() => setFilterStatus(status.id)}
               className={cn(
-                "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all whitespace-nowrap",
+                "px-4 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap",
                 filterStatus === status.id 
-                  ? "bg-primary text-white border-primary" 
-                  : "bg-transparent text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400"
+                  ? "bg-wa-teal/20 text-wa-teal" 
+                  : "bg-[#202c33] text-[#8696a0] hover:bg-[#2a3942]"
               )}
             >
               {status.label}
@@ -278,22 +285,28 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
       </div>
 
       <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {loading ? (
+        {connectionStatus === 'loading' && loading ? (
           <div className="flex flex-col items-center justify-center p-10 space-y-4">
             <Loader2 className="w-8 h-8 text-wa-teal animate-spin" />
-            <p className="text-sm text-wa-text-muted">Carregando contatos...</p>
+            <p className="text-sm text-[#8696a0]">Sincronizando...</p>
+          </div>
+        ) : connectionStatus === 'disconnected' ? (
+          <div className="flex flex-col items-center justify-center p-8 text-center h-[200px] bg-[#202c33]/30 mx-4 rounded-3xl border border-[#222d34]">
+            <QrCode className="w-10 h-10 text-wa-teal mb-4 opacity-50" />
+            <p className="text-[#e9edef] font-bold text-sm mb-2">WhatsApp Desconectado</p>
+            <p className="text-[#8696a0] text-xs">Conecte seu celular para espelhar as mensagens.</p>
           </div>
         ) : filteredLeads.length === 0 ? (
-          <div className="p-10 text-center text-sm text-wa-text-muted">Nenhum lead encontrado.</div>
+          <div className="p-10 text-center text-sm text-[#8696a0]">Nenhuma conversa encontrada.</div>
         ) : (
-          <div className="divide-y divide-wa-border">
+          <div className="">
             {filteredLeads.map((lead) => (
               <button
                 key={lead.id}
                 onClick={() => onSelectLead(lead)}
                 className={cn(
-                  "w-full flex items-center gap-3 p-3 transition-all hover:bg-wa-sidebar-hover group",
-                  selectedLeadId === lead.lead_id ? "bg-wa-sidebar-hover" : "bg-transparent"
+                  "w-full flex items-center gap-3 px-4 py-3 transition-all hover:bg-[#202c33] group border-b border-[#222d34]/50",
+                  selectedLeadId === lead.lead_id ? "bg-[#202c33]" : "bg-transparent"
                 )}
               >
                 {/* Avatar */}
@@ -302,43 +315,46 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
                     <img 
                       src={lead.profile_pic} 
                       alt={lead.lead_nome} 
-                      className="w-12 h-12 rounded-full object-cover border border-wa-border"
+                      className="w-12 h-12 rounded-full object-cover border border-[#222d34]"
                     />
                   ) : (
-                    <div className="w-12 h-12 rounded-full bg-wa-border flex items-center justify-center text-wa-text-muted font-medium border border-wa-border">
+                    <div className="w-12 h-12 rounded-full bg-[#313d45] flex items-center justify-center text-[#8696a0] font-medium">
                       <User className="w-6 h-6" />
                     </div>
                   )}
                   {lead.status === 'venda' && (
-                    <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-wa-sidebar" />
+                    <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-[#111b21]" />
                   )}
                 </div>
-
+ 
                 {/* Conteúdo */}
-                <div className="flex-1 text-left min-w-0 border-b border-wa-border pb-3 group-last:border-none">
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="font-medium text-wa-text truncate">
+                <div className="flex-1 text-left min-w-0 py-1">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <h3 className="font-medium text-[#e9edef] truncate">
                       {lead.lead_nome || lead.lead_id.split('@')[0]}
                     </h3>
-                    <span className="text-[11px] text-wa-text-muted">
+                    <span className={cn(
+                      "text-[12px]",
+                      lead.unread_count && lead.unread_count > 0 ? "text-wa-teal font-medium" : "text-[#8696a0]"
+                    )}>
                       {lead.last_message_at ? format(new Date(lead.last_message_at), 'HH:mm', { locale: ptBR }) : ''}
                     </span>
                   </div>
                   
                   <div className="flex items-center justify-between">
-                    <p className="text-sm text-wa-text-muted truncate pr-4">
+                    <p className="text-sm text-[#8696a0] truncate pr-4">
                       {lead.last_message_content || lead.lead_id}
                     </p>
                     
                     <div className="flex items-center gap-2">
                        {lead.unread_count && lead.unread_count > 0 ? (
-                         <div className="min-w-[20px] h-5 bg-wa-teal rounded-full flex items-center justify-center px-1">
+                         <div className="min-w-[20px] h-5 bg-wa-teal rounded-full flex items-center justify-center px-1.5">
                            <span className="text-[11px] font-bold text-[#111b21]">{lead.unread_count}</span>
                          </div>
                        ) : null}
                        <button 
                          onClick={(e) => handleDeleteLead(e, lead)}
-                         className="opacity-0 group-hover:opacity-100 p-1 text-wa-text-muted hover:text-red-500 transition-all"
+                         className="opacity-0 group-hover:opacity-100 p-1 text-[#8696a0] hover:text-red-500 transition-all"
                        >
                          <Trash2 className="w-4 h-4" />
                        </button>
