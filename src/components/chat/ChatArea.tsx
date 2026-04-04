@@ -40,11 +40,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
   const [showTemplates, setShowTemplates] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  
+
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(lead?.lead_nome || '');
   const [isUpdatingName, setIsUpdatingName] = useState(false);
-  
+
   const viewportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -121,7 +121,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
       if (isToday(date)) dateKey = 'Hoje';
       else if (isYesterday(date)) dateKey = 'Ontem';
       else dateKey = format(date, "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
-      
+
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(msg);
     });
@@ -159,7 +159,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
     if (e) e.preventDefault();
     const messageContent = content || newMessage;
     const hasMedia = !!mediaData;
-    
+
     if (!messageContent.trim() && !hasMedia) return;
     if (!leadId || isSending) return;
 
@@ -176,10 +176,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
       // Inserção no Banco de Dados
       const { data: inserted, error: dbError } = await supabase.from('chat_messages').insert([{
         session_id: leadId,
-        message: { 
-          type: 'ai', 
-          content: messageContent, 
-          from_crm: true, 
+        message: {
+          type: 'ai',
+          content: messageContent,
+          from_crm: true,
           sender_name: userName,
           media_url: mediaData?.url,
           media_type: mediaType,
@@ -194,7 +194,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
         // Atualização imediata da UI para evitar sensação de travamento
         setMessages(prev => {
           if (prev.some(m => m.id === inserted[0].id)) return prev;
-          return [...prev, inserted[0]].sort((a,b) => a.id - b.id);
+          return [...prev, inserted[0]].sort((a, b) => a.id - b.id);
         });
         scrollToBottom();
       }
@@ -207,7 +207,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
         const whatsappNumber = leadId.split('@')[0];
         const apiBaseUrl = baseUrl.split('/message/')[0];
 
-          if (hasMedia) {
+        if (hasMedia) {
           const mediaType = mediaData.type;
           const mimetype = mediaData.mimetype || (mediaType === 'image' ? 'image/png' : 'application/pdf');
 
@@ -220,7 +220,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
               delay: 1200
             };
             console.log('Enviando Áudio (PTT):', { audioEndpoint, payload });
-            
+
             const response = await fetch(audioEndpoint, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'apikey': apiKey },
@@ -304,12 +304,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
       if (file.type.startsWith('image/')) mediaType = 'image';
       else if (file.type.startsWith('video/')) mediaType = 'video';
       else if (file.type.startsWith('audio/') || file.name.endsWith('.ogg') || file.name.endsWith('.webm') || file.name.endsWith('.mp3') || file.name.endsWith('.m4a') || file.name.endsWith('.wav')) mediaType = 'audio';
-      
+
       console.log('Arquivo carregado no Storage:', { publicUrl, mediaType });
 
-      await handleSendMessage(undefined, undefined, { 
-        url: publicUrl, 
-        type: mediaType, 
+      await handleSendMessage(undefined, undefined, {
+        url: publicUrl,
+        type: mediaType,
         name: file.name,
         mimetype: file.type
       });
@@ -431,8 +431,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
             <div className="flex items-center gap-2">
               {isEditingName ? (
                 <div className="flex items-center gap-1 flex-1">
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={editedName}
                     onChange={(e) => setEditedName(e.target.value)}
                     className="bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded text-sm font-bold outline-none focus:ring-2 focus:ring-primary/20 w-full"
@@ -451,7 +451,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
                   <p className="font-bold text-sm tracking-tight truncate dark:text-white">
                     {lead?.lead_nome || leadId}
                   </p>
-                  <button 
+                  <button
                     onClick={() => setIsEditingName(true)}
                     className="p-1 text-zinc-400 hover:text-primary transition-colors"
                   >
@@ -464,7 +464,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
               <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
               <p className="text-[10px] text-zinc-400 truncate max-w-[150px]">{leadId}</p>
               <span className="text-zinc-300 dark:text-zinc-700 mx-0.5">•</span>
-              <select 
+              <select
                 value={lead?.status || 'novo'}
                 onChange={(e) => updateLeadStatus(e.target.value)}
                 className="text-[10px] bg-transparent text-zinc-400 font-medium uppercase tracking-wider outline-none cursor-pointer hover:text-primary transition-colors"
@@ -492,7 +492,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
               const isAI = msg.message.type === 'ai';
               const fromCRM = msg.message.from_crm;
               const isSentByMe = isAI || fromCRM;
-              
+
               return (
                 <div key={msg.id} className={cn("flex flex-col max-w-[80%] group", isSentByMe ? "items-end ml-auto" : "items-start")}>
                   <div className={cn("flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase tracking-wider", isSentByMe ? "text-primary/70" : "text-zinc-400")}>
@@ -503,10 +503,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
                     {msg.message.media_url && (
                       <div className="mb-3 rounded-lg overflow-hidden bg-black/5 dark:bg-white/5 min-w-[200px]">
                         {msg.message.media_type === 'image' && (
-                          <img 
-                            src={msg.message.media_url} 
-                            alt="Mídia" 
-                            className="max-w-full h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity" 
+                          <img
+                            src={msg.message.media_url}
+                            alt="Mídia"
+                            className="max-w-full h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity"
                             onClick={() => window.open(msg.message.media_url, '_blank')}
                           />
                         )}
@@ -536,10 +536,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
                       </div>
                     )}
                     <div className="flex items-end gap-2">
-                       <div className="whitespace-pre-wrap flex-1">{msg.message.content}</div>
-                       <span className="text-[10px] opacity-40 shrink-0 select-none pb-0.5">
-                         {msg.hora_data_mensagem ? format(new Date(msg.hora_data_mensagem), 'HH:mm') : ''}
-                       </span>
+                      <div className="whitespace-pre-wrap flex-1">{msg.message.content}</div>
+                      <span className="text-[10px] opacity-40 shrink-0 select-none pb-0.5">
+                        {msg.hora_data_mensagem ? format(new Date(msg.hora_data_mensagem), 'HH:mm') : ''}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -558,15 +558,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
               <span className="text-[10px] uppercase tracking-widest opacity-70">Gravando...</span>
             </div>
             <div className="flex items-center gap-2">
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={stopRecording}
                 className="p-3 bg-primary text-white rounded-full shadow-lg hover:scale-110 transition-transform"
               >
                 <Send className="w-5 h-5" />
               </button>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={cancelRecording}
                 className="p-3 text-zinc-400 hover:text-red-500 transition-colors"
                 title="Cancelar"
@@ -586,7 +586,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
             ))}
           </div>
         )}
-        
+
         <form onSubmit={(e) => handleSendMessage(e)} className="relative group flex items-center gap-2">
           <div className="flex items-center gap-1 shrink-0">
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
@@ -597,19 +597,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
               <Zap className="w-5 h-5" />
             </button>
           </div>
-          
-          <input 
-            type="text" 
-            value={newMessage} 
-            onChange={(e) => setNewMessage(e.target.value)} 
-            placeholder={isUploading ? "Carregando..." : (isRecording ? "Pressione o microfone para parar..." : "Digite uma mensagem...")} 
-            className="flex-1 px-4 py-2 bg-zinc-100 dark:bg-zinc-900 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none placeholder:text-zinc-400" 
-            disabled={isSending || isUploading || isRecording} 
+
+          <input
+            type="text"
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            placeholder={isUploading ? "Carregando..." : (isRecording ? "Pressione o microfone para parar..." : "Digite uma mensagem...")}
+            className="flex-1 px-4 py-2 bg-zinc-100 dark:bg-zinc-900 border-none rounded-2xl text-sm focus:ring-2 focus:ring-primary/20 outline-none placeholder:text-zinc-400"
+            disabled={isSending || isUploading || isRecording}
           />
-          
+
           <div className="flex items-center gap-1 shrink-0">
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={startRecording}
               disabled={isSending || isUploading || isRecording}
               className="p-2 text-zinc-400 hover:text-primary disabled:opacity-20 transition-colors"
@@ -617,9 +617,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
             >
               <Mic className="w-5 h-5" />
             </button>
-            <button 
-              type="submit" 
-              disabled={(!newMessage.trim() && !isUploading) || isSending || isUploading || isRecording} 
+            <button
+              type="submit"
+              disabled={(!newMessage.trim() && !isUploading) || isSending || isUploading || isRecording}
               className="p-2 bg-primary text-white rounded-xl shadow-lg disabled:opacity-50 hover:bg-primary-hover transition-colors"
             >
               {isSending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
