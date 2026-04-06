@@ -37,6 +37,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
   const [isSending, setIsSending] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
 
   const [isEditingName, setIsEditingName] = useState(false);
@@ -72,12 +73,103 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
         .select('*')
         .eq('session_id', leadId)
         .order('id', { ascending: true });
-
+  
       if (error) {
         console.error('Error fetching messages:', error);
-      } else {
-        setMessages(data || []);
+      } else if (data && data.length > 0) {
+        setMessages(data);
         scrollToBottom();
+      } else {
+        // Se o banco retornar vazio, tenta sincronizar com a Evolution API
+        await syncHistoricalMessages();
+      }
+    };
+  
+    const syncHistoricalMessages = async () => {
+      if (!leadId || isSyncing) return;
+      setIsSyncing(true);
+      
+      try {
+        console.log(`[SYNC] Iniciando busca ativa para: ${leadId}`);
+        
+        // 1. Chamar Edge Function wa-gate para buscar mensagens na Evolution API
+        const { data: response, error: invokeError } = await supabase.functions.invoke('wa-gate/sync-chat', {
+          body: { remoteJid: leadId, take: 50 },
+          method: 'POST'
+        });
+  
+        if (invokeError) throw invokeError;
+        
+        // A Evolution API retorna a lista de mensagens no campo 'instance' ou diretamente
+        const rawMessages = Array.isArray(response) ? response : (response?.messages || response?.data || []);
+        
+        if (!rawMessages.length) {
+          console.log('[SYNC] Nenhuma mensagem encontrada na Evolution API.');
+          setIsSyncing(false);
+          return;
+        }
+  
+        // 2. Normalizar as mensagens para o formato do banco (baseado no evolution-webhook/index.ts)
+        const messagesToInsert = rawMessages.map((msg: any) => {
+          const mBase = msg.message || {};
+          const mContent = mBase.message || mBase;
+          
+          let content = "";
+          if (typeof mContent === 'string') content = mContent;
+          else if (mContent.conversation) content = mContent.conversation;
+          else if (mContent.extendedTextMessage) content = mContent.extendedTextMessage.text || mContent.extendedTextMessage.caption;
+          else if (mContent.imageMessage) content = mContent.imageMessage.caption || "[Imagem]";
+          else if (mContent.videoMessage) content = mContent.videoMessage.caption || "[Vídeo]";
+          else if (mContent.documentMessage) content = mContent.documentMessage.fileName || "[Documento]";
+          else if (mContent.audioMessage) content = "[Áudio]";
+          
+          const timestamp = msg.messageTimestamp 
+            ? new Date(Number(msg.messageTimestamp) * 1000).toISOString() 
+            : new Date().toISOString();
+  
+          return {
+            remote_jid: leadId,
+            push_name: msg.pushName || leadId.split("@")[0],
+            content: content || "[Mídia/Arquivo]",
+            msg_id: msg.key?.id || `${leadId}_${timestamp}`,
+            is_from_me: !!msg.key?.fromMe,
+            timestamp: timestamp,
+            is_history: true,
+            // Campos adicionais esperados pela tabela chat_messages baseada no ChatArea.tsx
+            session_id: leadId,
+            message: {
+              type: msg.key?.fromMe ? 'ai' : 'human',
+              content: content || "[Mídia/Arquivo]",
+              media_url: null, // O findMessages normalmente não traz a URL da mídia diretamente sem processamento adicional
+              media_type: mContent.imageMessage ? 'image' : mContent.videoMessage ? 'video' : mContent.audioMessage ? 'audio' : mContent.documentMessage ? 'document' : null
+            },
+            hora_data_mensagem: timestamp
+          };
+        }).filter((m: any) => m.content);
+  
+        // 3. Persistir no banco usando a RPC já configurada no projeto
+        if (messagesToInsert.length > 0) {
+          console.log(`[SYNC] Salvando ${messagesToInsert.length} mensagens via RPC...`);
+          const { error: rpcError } = await supabase.rpc('upsert_messages_bulk_v21', {
+            p_messages: messagesToInsert
+          });
+  
+          if (rpcError) throw rpcError;
+  
+          // 4. Buscar novamente do banco para garantir que temos os IDs e ordenação corretos
+          const { data: finalMessages } = await supabase
+            .from('chat_messages')
+            .select('*')
+            .eq('session_id', leadId)
+            .order('id', { ascending: true });
+  
+          setMessages(finalMessages || []);
+          scrollToBottom();
+        }
+      } catch (err) {
+        console.error('[SYNC] Erro na sincronização ativa:', err);
+      } finally {
+        setIsSyncing(false);
       }
     };
 
@@ -432,6 +524,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ lead, onBack, onUpdate }) =>
           backgroundColor: 'rgba(11, 20, 26, 0.95)'
         }}
       >
+        {isSyncing && (
+          <div className="flex flex-col items-center justify-center py-8 space-y-3 bg-black/10 rounded-lg animate-pulse">
+            <Loader2 className="w-6 h-6 text-wa-teal animate-spin" />
+            <p className="text-xs text-wa-text-muted font-medium">Buscando mensagens antigas...</p>
+          </div>
+        )}
         {Object.entries(groupedMessages).map(([date, msgs]) => (
           <div key={date} className="space-y-4">
             <div className="flex justify-center sticky top-0 z-20 py-2">

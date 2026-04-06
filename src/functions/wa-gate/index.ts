@@ -38,6 +38,9 @@ Deno.serve(async (req) => {
   } else if (action === "logout") {
     target = `${baseUrl}/instance/logout/${INSTANCE}`;
     method = "DELETE";
+  } else if (action === "sync-chat") {
+    target = `${baseUrl}/chat/findMessages/${INSTANCE}`;
+    method = "POST";
   } else {
     return new Response(JSON.stringify({ error: "Ação inválida" }), { status: 400, headers: cors });
   }
@@ -61,6 +64,17 @@ Deno.serve(async (req) => {
           "CONTACTS_UPSERT",
           "CONNECTION_UPDATE"
         ]
+      });
+    } else if (action === "sync-chat" && req.method === "POST") {
+      const reqData = await req.json().catch(() => ({}));
+      if (!reqData.remoteJid) {
+        return new Response(JSON.stringify({ error: "remoteJid é obrigatório para sync-chat" }), { status: 400, headers: cors });
+      }
+      body = JSON.stringify({
+        where: {
+          remoteJid: reqData.remoteJid
+        },
+        take: reqData.take || 50
       });
     }
 
