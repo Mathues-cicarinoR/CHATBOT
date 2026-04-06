@@ -42,7 +42,7 @@ async function processMessages(messages: any[]) {
                 else if (mContent.audioMessage) content = "[Áudio]";
                 else if (mContent.stickerMessage) content = "[Figurinha]";
                 else if (mContent.locationMessage) content = "[Localização]";
-                else if (mContent.contactMessage) content = "[Contato]"; e
+                else if (mContent.contactMessage) content = "[Contato]";
                 else if (mContent.protocolMessage) continue; // Ignorar mensagens de sistema/deletadas
 
                 // Fallback: Se não encontrou nada mas existe um objeto de mensagem, marca como mídia genérica
@@ -81,6 +81,35 @@ async function processMessages(messages: any[]) {
     }
 }
 
+async function processContacts(contacts: any[]) {
+    if (!contacts || !contacts.length) return;
+    
+    console.log(`[V22] Sincronizando lote de ${contacts.length} contatos.`);
+    
+    // Mapeamento para o esquema da tabela Leads
+    const upsertData = contacts.map(c => {
+        const id = c.id || c.remoteJid;
+        if (!id) return null;
+
+        return {
+            lead_id: id,
+            lead_nome: c.name || c.pushname || id.split("@")[0],
+            is_active: true, // Garante que o contato apareça na lista ativa do CRM
+            profile_pic: c.profilePicUrl || c.profile_pic || null,
+            status: 'novo' // Status inicial padrão
+        };
+    }).filter(c => c !== null);
+
+    if (upsertData.length) {
+        const { error } = await supabase
+            .from('Leads')
+            .upsert(upsertData, { onConflict: 'lead_id' });
+            
+        if (error) console.error(`[V22] Erro ao sincronizar contatos:`, error);
+        else console.log(`[V22] Sucesso: Sincronizados ${upsertData.length} contatos.`);
+    }
+}
+
 Deno.serve(async (req) => {
     try {
         const payload = await req.json();
@@ -97,6 +126,11 @@ Deno.serve(async (req) => {
             // Em MESSAGES_SET, data.messages é o array. Em UPSERT, data é o objeto/array.
             const list = Array.isArray(data) ? data : (data?.messages || [data]);
             await processMessages(list);
+        }
+
+        if (event && event.includes("contacts")) {
+            const list = Array.isArray(data) ? data : [data];
+            await processContacts(list);
         }
         
         return new Response(JSON.stringify({ status: "ok" }), { headers: { "Content-Type": "application/json" } });
