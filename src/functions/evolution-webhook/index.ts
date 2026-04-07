@@ -84,29 +84,38 @@ async function processMessages(messages: any[]) {
 async function processContacts(contacts: any[]) {
     if (!contacts || !contacts.length) return;
     
-    console.log(`[V22] Sincronizando lote de ${contacts.length} contatos.`);
+    console.log(`[CONTACTS] Iniciando processamento de ${contacts.length} entradas.`);
     
-    // Mapeamento para o esquema da tabela Leads
     const upsertData = contacts.map(c => {
-        const id = c.id || c.remoteJid;
-        if (!id) return null;
+        // Evolution API v2 pode enviar o ID em 'id' ou 'remoteJid'
+        const id = c.id || c.remoteJid || c.jid;
+        if (!id) {
+            console.warn("[CONTACTS] Contato ignorado por falta de ID:", JSON.stringify(c).slice(0, 200));
+            return null;
+        }
 
+        const name = c.name || c.pushname || c.verifiedName || id.split("@")[0];
+        
         return {
             lead_id: id,
-            lead_nome: c.name || c.pushname || id.split("@")[0],
-            is_active: true, // Garante que o contato apareça na lista ativa do CRM
+            lead_nome: name,
+            is_active: true,
             profile_pic: c.profilePicUrl || c.profile_pic || null,
-            status: 'novo' // Status inicial padrão
+            status: 'novo'
         };
     }).filter(c => c !== null);
 
     if (upsertData.length) {
+        console.log(`[CONTACTS] Fazendo upsert de ${upsertData.length} contatos no Supabase.`);
         const { error } = await supabase
             .from('Leads')
             .upsert(upsertData, { onConflict: 'lead_id' });
             
-        if (error) console.error(`[V22] Erro ao sincronizar contatos:`, error);
-        else console.log(`[V22] Sucesso: Sincronizados ${upsertData.length} contatos.`);
+        if (error) {
+            console.error(`[CONTACTS] Erro no Upsert:`, error);
+        } else {
+            console.log(`[CONTACTS] Sucesso: ${upsertData.length} contatos sincronizados.`);
+        }
     }
 }
 
