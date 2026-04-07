@@ -41,6 +41,11 @@ Deno.serve(async (req) => {
   } else if (action === "sync-chat") {
     target = `${baseUrl}/chat/findMessages/${INSTANCE}`;
     method = "POST";
+  } else if (action === "sync-all") {
+    // Esta é uma super-ação que vai chamar múltiplos endpoints internamente
+    // mas vamos definir um target dummy para o log e usar lógica customizada abaixo
+    target = `${baseUrl}/chat/findChats/${INSTANCE}`;
+    method = "POST";
   } else {
     return new Response(JSON.stringify({ error: "Ação inválida" }), { status: 400, headers: cors });
   }
@@ -79,6 +84,56 @@ Deno.serve(async (req) => {
         },
         take: reqData.take || 50
       });
+    } else if (action === "sync-all") {
+        try {
+            console.log("[WA-GATE] Iniciando Sincronização Global...");
+            
+            // 1. Buscar Chats (Conversas Ativas)
+            const chatsRes = await fetch(`${baseUrl}/chat/findChats/${INSTANCE}`, {
+                method: "POST",
+                headers: { "apikey": EVO_KEY, "Content-Type": "application/json" },
+                body: JSON.stringify({ limit: 100 })
+            });
+            const chatsData = await chatsRes.json();
+            
+            // 2. Buscar Contatos (Agenda)
+            const contactsRes = await fetch(`${baseUrl}/chat/findContacts/${INSTANCE}`, {
+                method: "POST",
+                headers: { "apikey": EVO_KEY, "Content-Type": "application/json" },
+                body: JSON.stringify({})
+            });
+            const contactsData = await contactsRes.json();
+
+            // 3. Encaminhar para o Webhook Local para Processamento
+            const webhookUrl = `https://lvgdsbybyeqjsllrhvtc.supabase.co/functions/v1/evolution-webhook`;
+            
+            if (Array.isArray(chatsData)) {
+                console.log(`[WA-GATE] Enviando ${chatsData.length} chats para o webhook...`);
+                await fetch(webhookUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ event: "chats.upsert", data: chatsData })
+                }).catch(e => console.error("Erro ao enviar chats:", e));
+            }
+
+            if (Array.isArray(contactsData)) {
+                console.log(`[WA-GATE] Enviando ${contactsData.length} contatos para o webhook...`);
+                await fetch(webhookUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ event: "contacts.upsert", data: contactsData })
+                }).catch(e => console.error("Erro ao enviar contatos:", e));
+            }
+
+            return new Response(JSON.stringify({ 
+                status: "success", 
+                message: "Sincronização global iniciada",
+                summary: { chats: chatsData?.length || 0, contacts: contactsData?.length || 0 }
+            }), { headers: { ...cors, "Content-Type": "application/json" } });
+
+        } catch (err) {
+            return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: cors });
+        }
     }
 
     const res = await fetch(target, {

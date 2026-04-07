@@ -32,6 +32,7 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
   const [newLeadName, setNewLeadName] = useState('');
   const [newLeadPhone, setNewLeadPhone] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'open' | 'disconnected' | 'loading'>('loading');
 
   const fetchLeads = async () => {
@@ -144,6 +145,24 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
     }
   };
 
+  const handleSyncAll = async () => {
+    if (isSyncingAll) return;
+    setIsSyncingAll(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('wa-gate/sync-all');
+      if (error) throw error;
+      
+      console.log('Sincronização iniciada:', data);
+      // O webhook cuidará do salvamento, bastando aguardar o realtime ou dar um fetch
+      setTimeout(fetchLeads, 2000); // Aguarda um pouco para os nomes serem processados
+    } catch (err) {
+      console.error('Erro ao sincronizar:', err);
+      alert('Erro na sincronização global.');
+    } finally {
+      setIsSyncingAll(false);
+    }
+  };
+
   const handleDeleteLead = async (e: React.MouseEvent, lead: Lead) => {
     e.stopPropagation();
     if (!confirm(`Ocultar conversa com ${lead.lead_nome || lead.lead_id}?`)) return;
@@ -188,6 +207,18 @@ export const LeadList: React.FC<LeadListProps> = ({ selectedLeadId, onSelectLead
         <div className="flex items-center justify-between px-2">
           <h1 className="text-xl font-bold tracking-tight text-[#e9edef]">Mensagens</h1>
           <div className="flex items-center gap-3">
+            <button 
+              onClick={handleSyncAll}
+              disabled={isSyncingAll || connectionStatus !== 'open'}
+              title="Sincronizar conversas do WhatsApp"
+              className={cn(
+                "p-2 rounded-full transition-all bg-white/5 hover:bg-white/10",
+                isSyncingAll ? "text-wa-teal animate-spin" : "text-[#8696a0] hover:text-wa-teal"
+              )}
+            >
+              <RefreshCw className={cn("w-5 h-5", isSyncingAll && "animate-spin")} />
+            </button>
+
             <button 
               onClick={() => setIsAddingLead(!isAddingLead)}
               className={cn(
