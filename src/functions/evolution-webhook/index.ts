@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
             await processMessages(list);
         }
 
-        if (event && event.includes("contacts")) {
+        if (event && event.includes("contacts") || event && event.includes("chats")) {
             const list = Array.isArray(data) ? data : [data];
             await processContacts(list);
         }
