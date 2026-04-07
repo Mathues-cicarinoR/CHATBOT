@@ -55,13 +55,16 @@ Deno.serve(async (req) => {
         token: EVO_KEY, // Algumas versões da Evolution pedem o token aqui
         qrcode: true,
         syncFullHistory: true, // Ativa a sincronização de conversas antigas
-        webhook: `https://lvgdsbybyeqjsllrhvtc.supabase.co/functions/v1/evo-handler`,
+        webhook: `https://lvgdsbybyeqjsllrhvtc.supabase.co/functions/v1/evolution-webhook`,
         events: [
           "MESSAGES_UPSERT",
           "MESSAGES_UPDATE",
           "MESSAGES_DELETE",
           "SEND_MESSAGE",
           "CONTACTS_UPSERT",
+          "CONTACTS_UPDATE",
+          "CHATS_UPSERT",
+          "CHATS_UPDATE",
           "CONNECTION_UPDATE"
         ]
       });

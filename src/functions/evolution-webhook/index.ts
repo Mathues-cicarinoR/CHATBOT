@@ -124,6 +124,8 @@ Deno.serve(async (req) => {
         const payload = await req.json();
         const { event, data } = payload;
         
+        console.log(`[WEBHOOK RECEBIDO] Evento: ${event} | Origem: ${req.headers.get("user-agent")}`);
+        
         // n8n Pass-through
         fetch("https://chatbot-n8n.pde4mi.easypanel.host/webhook/ed6608a6-96ea-41df-863d-70588cab8739", { 
             method: "POST", 
